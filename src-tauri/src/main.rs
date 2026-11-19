@@ -479,6 +479,11 @@ async fn save_settings(state: Shared<'_>, settings: Settings) -> Result<Value, S
 fn set_tray_sessions(app: tauri::AppHandle, connected: usize) -> Result<(), String> {
     tray::set_sessions(&app, connected).map_err(err)
 }
+/// Whether the tray icon exists: "close to tray" must never hide the only way back.
+#[tauri::command]
+fn tray_available(app: tauri::AppHandle) -> bool {
+    app.try_state::<tray::Tray>().is_some()
+}
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
@@ -530,6 +535,7 @@ fn main() {
             restore_backup,
             save_settings,
             set_tray_sessions,
+            tray_available,
             quit_app
         ])
         .run(tauri::generate_context!())

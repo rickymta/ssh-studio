@@ -99,6 +99,9 @@ function App() {
   // Servers of recently closed sessions, newest last (Ctrl+Shift+T).
   const closedHosts = useRef([]);
   const searchBox = useRef();
+  const [trayReady, setTrayReady] = useState(false);
+  const trayRef = useRef(false);
+  trayRef.current = trayReady;
   const notify = useCallback(
     (message, error = false) =>
       setToast({ message: cleanError(message), error }),
@@ -161,6 +164,7 @@ function App() {
       register("forward", (payload) =>
         setForwards((old) => ({ ...old, [payload.id]: payload })),
       ),
+      call("tray_available").then(setTrayReady),
       call("list_forwards").then((list) =>
         setForwards(Object.fromEntries(list.map((f) => [f.id, f]))),
       ),
@@ -197,7 +201,7 @@ function App() {
       .catch((e) => notify(e, true));
     getCurrentWindow()
       .onCloseRequested(async (event) => {
-        if (settingsRef.current.closeToTray) {
+        if (settingsRef.current.closeToTray && trayRef.current) {
           // Sessions keep running; the tray icon shows the window again.
           event.preventDefault();
           await getCurrentWindow().hide();
@@ -925,7 +929,11 @@ function App() {
             </section>
           )}
           {page === "settings" && (
-            <SettingsPage settings={settings} save={saveSettings} />
+            <SettingsPage
+              settings={settings}
+              save={saveSettings}
+              trayReady={trayReady || !desktop}
+            />
           )}
           {sessions.map((session) => (
             <SessionPane

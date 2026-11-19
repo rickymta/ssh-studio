@@ -21,7 +21,7 @@ export const shortcutList = [
 ];
 
 /** Preferences stored in workspace.json `settings` (F7). */
-export function SettingsPage({ settings, save }) {
+export function SettingsPage({ settings, save, trayReady = true }) {
   const [draft, setDraft] = useState(settings);
   const [busy, setBusy] = useState(false);
   // Follow saved changes (e.g. zoom shortcuts) but not mere re-renders of the app, which
@@ -143,10 +143,16 @@ export function SettingsPage({ settings, save }) {
               Hỏi xác nhận khi đóng phiên đang kết nối hoặc thoát lúc còn việc
             </label>
             <label className="check">
-              <input type="checkbox" {...check("closeToTray")} />
+              <input
+                type="checkbox"
+                disabled={!trayReady}
+                {...check("closeToTray")}
+              />
               Đóng cửa sổ thì thu về khay hệ thống (phiên vẫn chạy)
             </label>
             <p className="form-note">
+              {!trayReady &&
+                "Không tạo được biểu tượng khay trên hệ thống này nên tùy chọn thu về khay bị tắt. "}
               Khi thu về khay: nhấp biểu tượng SSH Studio ở khay để mở lại, chọn
               “Thoát SSH Studio” trong menu khay để thoát hẳn.
             </p>
