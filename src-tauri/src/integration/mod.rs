@@ -3,3 +3,4 @@ mod basic;
 mod bugfixes;
 mod fixture;
 mod sftp_disk;
+mod transfers;

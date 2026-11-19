@@ -16,18 +16,21 @@ import {
   FolderPlus,
   ExternalLink,
 } from "lucide-react";
-import { size, isFolder } from "../lib.js";
+import { size, isFolder, nextSelection } from "../lib.js";
 import { Button, IconButton } from "./ui.jsx";
 
 export function FilePane({
   side,
   listing,
-  selected,
+  selection,
   loading,
   error,
   disabled,
+  dropActive,
+  dropFolder,
   load,
   select,
+  startDrag,
   create,
   rename,
   remove,
@@ -36,23 +39,37 @@ export function FilePane({
 }) {
   const [address, setAddress] = useState(listing.path);
   useEffect(() => setAddress(listing.path), [listing.path]);
+  const chosen = selection.selection;
+  const names = listing.files.map((f) => f.name);
+  const pick = (file, e = {}) =>
+    select(
+      nextSelection(names, chosen, selection.anchor, file.name, {
+        ctrl: e.ctrlKey || e.metaKey,
+        shift: e.shiftKey,
+      }),
+    );
   const join = (name) =>
     side === "remote"
       ? listing.path.replace(/\/$/, "") + "/" + name
       : listing.path.replace(/[\\/]$/, "") + "\\" + name;
   return (
-    <section className="file-pane">
+    <section
+      className={`file-pane ${dropActive && !dropFolder ? "drop-active" : ""}`}
+      data-drop-side={disabled ? undefined : side}
+      data-drop-path={listing.path}
+    >
       <div className="file-pane-title">
         <span>
           {side === "local" ? <Monitor size={17} /> : <Server size={17} />}{" "}
           {side === "local" ? "Máy của bạn" : "Remote server"}
         </span>
         <Button
-          disabled={!selected || isFolder(selected) || !canTransfer}
+          disabled={!chosen.length || !canTransfer}
           icon={side === "local" ? Upload : Download}
           onClick={transfer}
         >
           {side === "local" ? "Upload" : "Download"}
+          {chosen.length > 1 && ` (${chosen.length})`}
         </Button>
       </div>
       <div className="pathbar">
@@ -105,16 +122,19 @@ export function FilePane({
         <IconButton
           icon={Pencil}
           title="Đổi tên"
-          disabled={disabled || !selected}
+          disabled={disabled || chosen.length !== 1}
           onClick={rename}
         />
         <IconButton
           icon={Trash2}
           title="Xóa"
-          disabled={disabled || !selected}
+          disabled={disabled || !chosen.length}
           onClick={remove}
         />
-        <span>{listing.files.length} mục</span>
+        <span>
+          {chosen.length > 1 && `${chosen.length} đã chọn · `}
+          {listing.files.length} mục
+        </span>
       </div>
       <div className="file-table-wrap">
         {disabled ? (
@@ -127,7 +147,15 @@ export function FilePane({
         ) : error ? (
           <div className="file-error">{error}</div>
         ) : (
-          <table className="file-table">
+          <table
+            className="file-table"
+            onKeyDown={(e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+                e.preventDefault();
+                select({ selection: names, anchor: names[0] || null });
+              }
+            }}
+          >
             <thead>
               <tr>
                 <th>Tên</th>
@@ -140,13 +168,26 @@ export function FilePane({
                 <tr
                   key={file.name}
                   tabIndex={0}
-                  aria-selected={selected?.name === file.name}
-                  className={selected?.name === file.name ? "selected" : ""}
-                  onClick={() => select(file)}
+                  aria-selected={chosen.includes(file.name)}
+                  className={[
+                    chosen.includes(file.name) ? "selected" : "",
+                    dropFolder === file.name ? "drop-target" : "",
+                  ].join(" ")}
+                  data-drop-side={isFolder(file) ? side : undefined}
+                  data-drop-path={isFolder(file) ? join(file.name) : undefined}
+                  data-drop-folder={isFolder(file) ? file.name : undefined}
+                  onPointerDown={(e) => {
+                    if (e.button === 0 && !e.ctrlKey && !e.shiftKey && !e.metaKey)
+                      startDrag(file, e);
+                  }}
+                  onClick={(e) => pick(file, e)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      select(file);
+                      pick(file);
                       if (isFolder(file)) load(join(file.name));
+                    } else if (e.key === " ") {
+                      e.preventDefault();
+                      pick(file, { ctrlKey: true });
                     }
                   }}
                   onDoubleClick={() => {

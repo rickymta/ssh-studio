@@ -1,16 +1,11 @@
 use crate::AppState;
-use russh_sftp::{client::SftpSession, protocol::OpenFlags};
-use serde::{Deserialize, Serialize};
+use russh_sftp::client::SftpSession;
 use serde_json::{Value, json};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    sync::Notify,
-};
-fn safe_name(name: &str) -> anyhow::Result<()> {
+pub(crate) fn safe_name(name: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !name.is_empty()
             && name != "."
@@ -22,10 +17,13 @@ fn safe_name(name: &str) -> anyhow::Result<()> {
     );
     Ok(())
 }
-fn remote_join(directory: &str, name: &str) -> String {
+pub(crate) fn remote_join(directory: &str, name: &str) -> String {
     format!("{}/{}", directory.trim_end_matches('/'), name)
 }
-async fn session(state: &AppState, id: &str) -> anyhow::Result<Arc<crate::ssh::Session>> {
+pub(crate) async fn session(
+    state: &AppState,
+    id: &str,
+) -> anyhow::Result<Arc<crate::ssh::Session>> {
     state
         .sessions
         .lock()
@@ -33,9 +31,6 @@ async fn session(state: &AppState, id: &str) -> anyhow::Result<Arc<crate::ssh::S
         .get(id)
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("Server đã ngắt kết nối"))
-}
-async fn sftp(state: &AppState, id: &str) -> anyhow::Result<Arc<SftpSession>> {
-    session(state, id).await?.files().await
 }
 /// True when an SFTP error means the channel itself is gone (not a server status reply).
 fn channel_lost(error: &anyhow::Error) -> bool {
@@ -210,173 +205,6 @@ pub async fn action(
         }
     }
     Ok(())
-}
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Transfer {
-    pub id: String,
-    pub session_id: String,
-    pub direction: String,
-    pub local_directory: String,
-    pub remote_directory: String,
-    pub name: String,
-}
-pub async fn start(
-    app: crate::Events,
-    state: Arc<AppState>,
-    request: Transfer,
-) -> anyhow::Result<()> {
-    safe_name(&request.name)?;
-    safe_name(&request.id)?;
-    anyhow::ensure!(
-        request.direction == "upload" || request.direction == "download",
-        "Hướng truyền không hợp lệ"
-    );
-    anyhow::ensure!(
-        state
-            .sessions
-            .lock()
-            .await
-            .contains_key(&request.session_id),
-        "Server đã ngắt kết nối"
-    );
-    let cancel = Arc::new(Notify::new());
-    {
-        let mut transfers = state.transfers.lock().await;
-        anyhow::ensure!(
-            !transfers.contains_key(&request.id),
-            "Transfer ID đã tồn tại"
-        );
-        transfers.insert(request.id.clone(), cancel.clone());
-    }
-    event(&app, &request, "queued", 0, 0, None);
-    tokio::spawn(async move {
-        let result = tokio::select! {
-            _ = cancel.notified() => Err(anyhow::anyhow!("Đã hủy")),
-            result = async {
-                let _permit = state.slots.acquire().await?;
-                copy(&app,&state,&request).await
-            } => result
-        };
-        // A cancelled future drops both streams. Remove only this transfer's partial file.
-        let temp = format!(".{}.sshstudio-{}.part", request.name, request.id);
-        if request.direction == "upload" {
-            if let Ok(remote) = sftp(&state, &request.session_id).await {
-                let _ = remote
-                    .remove_file(remote_join(&request.remote_directory, &temp))
-                    .await;
-            }
-        } else {
-            let _ = tokio::fs::remove_file(Path::new(&request.local_directory).join(temp)).await;
-        }
-        match result {
-            Ok(total) => event(&app, &request, "completed", total, total, None),
-            Err(e) => event(
-                &app,
-                &request,
-                if e.to_string() == "Đã hủy" {
-                    "cancelled"
-                } else {
-                    "failed"
-                },
-                0,
-                0,
-                Some(e.to_string()),
-            ),
-        }
-        state.transfers.lock().await.remove(&request.id);
-    });
-    Ok(())
-}
-fn event(
-    app: &crate::Events,
-    req: &Transfer,
-    status: &str,
-    bytes: u64,
-    total: u64,
-    error: Option<String>,
-) {
-    let _ = app.emit("transfer",json!({"id":req.id,"sessionId":req.session_id,"name":req.name,"direction":req.direction,"status":status,"bytes":bytes,"total":total,"error":error}));
-}
-async fn copy(app: &crate::Events, state: &AppState, req: &Transfer) -> anyhow::Result<u64> {
-    let remote = sftp(state, &req.session_id).await?;
-    let local = Path::new(&req.local_directory).join(&req.name);
-    let target = remote_join(&req.remote_directory, &req.name);
-    let temp_name = format!(".{}.sshstudio-{}.part", req.name, req.id);
-    let mut bytes = 0;
-    let mut buffer = vec![0; 64 * 1024];
-    let mut last = std::time::Instant::now();
-    if req.direction == "upload" {
-        anyhow::ensure!(
-            !remote.try_exists(&target).await?,
-            "File đích đã tồn tại. Đổi tên hoặc xóa file đích trước khi truyền."
-        );
-        let metadata = tokio::fs::metadata(&local).await?;
-        anyhow::ensure!(
-            metadata.is_file(),
-            "Chỉ truyền file; hãy nén thư mục trước."
-        );
-        let total = metadata.len();
-        event(app, req, "running", 0, total, None);
-        let temp = remote_join(&req.remote_directory, &temp_name);
-        let mut input = tokio::fs::File::open(local).await?;
-        let mut output = remote
-            .open_with_flags(
-                &temp,
-                OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::EXCLUDE,
-            )
-            .await?;
-        loop {
-            let n = input.read(&mut buffer).await?;
-            if n == 0 {
-                break;
-            }
-            output.write_all(&buffer[..n]).await?;
-            bytes += n as u64;
-            if last.elapsed().as_millis() > 100 {
-                event(app, req, "running", bytes, total, None);
-                last = std::time::Instant::now();
-            }
-        }
-        output.shutdown().await?;
-        remote.rename(temp, target).await?;
-    } else {
-        anyhow::ensure!(
-            !tokio::fs::try_exists(&local).await?,
-            "File đích đã tồn tại. Đổi tên hoặc xóa file đích trước khi truyền."
-        );
-        let metadata = remote.metadata(&target).await?;
-        anyhow::ensure!(
-            metadata.is_regular(),
-            "Chỉ truyền file; hãy nén thư mục trước."
-        );
-        let total = metadata.size.unwrap_or(0);
-        event(app, req, "running", 0, total, None);
-        let temp = Path::new(&req.local_directory).join(temp_name);
-        let mut input = remote.open(target).await?;
-        let mut output = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)
-            .await?;
-        loop {
-            let n = input.read(&mut buffer).await?;
-            if n == 0 {
-                break;
-            }
-            output.write_all(&buffer[..n]).await?;
-            bytes += n as u64;
-            if last.elapsed().as_millis() > 100 {
-                event(app, req, "running", bytes, total, None);
-                last = std::time::Instant::now();
-            }
-        }
-        output.sync_all().await?;
-        drop(output);
-        let (temp, local) = (temp.clone(), local.clone());
-        tokio::task::spawn_blocking(move || publish_no_clobber(&temp, &local)).await??;
-    }
-    Ok(bytes)
 }
 /// Publishes a finished temporary file as `dest` without ever replacing an existing file.
 pub(crate) fn publish_no_clobber(temp: &Path, dest: &Path) -> std::io::Result<()> {

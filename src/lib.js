@@ -52,6 +52,83 @@ export const binaryBytes = (text) =>
 export const isFolder = (file) =>
   !!(file && (file.directory || (file.link && file.targetDirectory)));
 
+/**
+ * Explorer-style selection: click selects one item, Ctrl toggles, Shift extends from the
+ * anchor (Ctrl+Shift adds the range to the current selection).
+ */
+export function nextSelection(names, selection, anchor, name, mods = {}) {
+  if (mods.shift && anchor && names.includes(anchor)) {
+    const [a, b] = [names.indexOf(anchor), names.indexOf(name)].sort(
+      (x, y) => x - y,
+    );
+    const range = names.slice(a, b + 1);
+    return {
+      selection: mods.ctrl ? [...new Set([...selection, ...range])] : range,
+      anchor,
+    };
+  }
+  if (mods.ctrl)
+    return {
+      selection: selection.includes(name)
+        ? selection.filter((n) => n !== name)
+        : [...selection, name],
+      anchor: name,
+    };
+  return { selection: [name], anchor: name };
+}
+
+/** Splits a dropped local path (Windows or POSIX) into its folder and name. */
+export function splitPath(path) {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  const i = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
+  if (i < 0) return { directory: "", name: trimmed };
+  let directory = trimmed.slice(0, i);
+  if (/^[A-Za-z]:$/.test(directory)) directory += "\\";
+  if (directory === "") directory = "/";
+  return { directory, name: trimmed.slice(i + 1) };
+}
+
+/**
+ * Decides the conflict policy of each name in a batch. `ask(name)` resolves to
+ * `{choice: "overwrite" | "rename" | "skip" | "cancel", all}`; "all" reuses the answer for
+ * the remaining conflicts. Skipped names are left out; `null` means the batch was cancelled.
+ */
+export async function planConflicts(names, existing, ask) {
+  const taken = new Set(existing);
+  let always = null;
+  const plan = [];
+  for (const name of names) {
+    if (!taken.has(name)) {
+      plan.push({ name, conflict: "fail" });
+      continue;
+    }
+    let choice = always;
+    if (!choice) {
+      const answer = await ask(name);
+      if (!answer || answer.choice === "cancel") return null;
+      choice = answer.choice;
+      if (answer.all) always = choice;
+    }
+    if (choice !== "skip") plan.push({ name, conflict: choice });
+  }
+  return plan;
+}
+
+/** Request to retry a finished transfer row: resume failed ones, restart cancelled ones. */
+export function retryRequest(t) {
+  return {
+    id: t.id,
+    sessionId: t.sessionId,
+    direction: t.direction,
+    localDirectory: t.localDirectory,
+    remoteDirectory: t.remoteDirectory,
+    name: t.name,
+    conflict: t.conflict || "fail",
+    targetName: t.targetName || null,
+    resume: t.status === "failed" && !!t.resumable,
+  };
+}
+
 /** Human label for the backend's `std::env::consts::OS`. */
 export function osLabel(os) {
   return (

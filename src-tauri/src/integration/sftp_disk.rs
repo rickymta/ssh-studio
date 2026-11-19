@@ -16,6 +16,8 @@ use std::{
 pub type Links = Arc<Mutex<HashMap<String, String>>>;
 /// Permission overlay: virtual path → permission bits (without file type).
 pub type Modes = Arc<Mutex<HashMap<String, u32>>>;
+/// Writes ending past this offset fail (simulates a disk/connection failure mid-transfer).
+pub type WriteLimit = Arc<std::sync::atomic::AtomicU64>;
 
 const S_IFDIR: u32 = 0o040000;
 const S_IFREG: u32 = 0o100000;
@@ -30,16 +32,18 @@ pub struct DiskSftp {
     root: PathBuf,
     links: Links,
     modes: Modes,
+    write_limit: WriteLimit,
     handles: HashMap<String, Open>,
     next: u64,
 }
 
 impl DiskSftp {
-    pub fn new(root: PathBuf, links: Links, modes: Modes) -> Self {
+    pub fn new(root: PathBuf, links: Links, modes: Modes, write_limit: WriteLimit) -> Self {
         Self {
             root,
             links,
             modes,
+            write_limit,
             handles: HashMap::new(),
             next: 0,
         }
@@ -364,13 +368,11 @@ impl russh_sftp::server::Handler for DiskSftp {
             .truncate(flags.contains(p::OpenFlags::TRUNCATE))
             .open(&disk)
             .map_err(io_status)?;
-        if !exists {
-            if let Some(permissions) = attrs.permissions {
-                self.modes
-                    .lock()
-                    .unwrap()
-                    .insert(path.clone(), permissions & 0o7777);
-            }
+        if !exists && let Some(permissions) = attrs.permissions {
+            self.modes
+                .lock()
+                .unwrap()
+                .insert(path.clone(), permissions & 0o7777);
         }
         Ok(p::Handle {
             id,
@@ -407,6 +409,10 @@ impl russh_sftp::server::Handler for DiskSftp {
         offset: u64,
         data: Vec<u8>,
     ) -> Result<p::Status, StatusCode> {
+        let limit = self.write_limit.load(std::sync::atomic::Ordering::SeqCst);
+        if offset + data.len() as u64 > limit {
+            return Err(StatusCode::Failure);
+        }
         let Some(Open::File(file)) = self.handles.get_mut(&handle) else {
             return Err(StatusCode::Failure);
         };

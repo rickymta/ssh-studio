@@ -138,16 +138,17 @@ async fn symlink_targets_are_reported_and_link_to_file_downloads() {
     assert_eq!(entry("to-file")["link"], true);
     assert_eq!(entry("to-file")["targetDirectory"], false);
     // …and a link to a file can be transferred like a file.
-    files::start(
+    crate::transfer::start(
         fx.sink.clone(),
         fx.state.clone(),
-        files::Transfer {
+        crate::transfer::Transfer {
             id: "link".into(),
             session_id: "s".into(),
             direction: "download".into(),
             local_directory: fx.local.path().to_string_lossy().into(),
             remote_directory: "/".into(),
             name: "to-file".into(),
+            ..Default::default()
         },
     )
     .await

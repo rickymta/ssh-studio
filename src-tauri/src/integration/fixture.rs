@@ -2,7 +2,7 @@
 //! Loopback SSH server fixture: password, publickey, keyboard-interactive (OTP / MFA),
 //! SFTP on a real temporary directory, direct-tcpip (jump host, -L, -D) and tcpip-forward (-R).
 //! Only test credentials are used; nothing leaves 127.0.0.1.
-use super::sftp_disk::{DiskSftp, Links, Modes};
+use super::sftp_disk::{DiskSftp, Links, Modes, WriteLimit};
 use crate::{AppState, Events, store::Host, store::Store};
 use russh::{
     Channel, ChannelId, ChannelOpenFailure, MethodKind, MethodSet,
@@ -37,6 +37,7 @@ struct TestServer {
     modes: Modes,
     allowed_key: russh::keys::PublicKey,
     sftp_opened: Arc<std::sync::atomic::AtomicUsize>,
+    write_limit: WriteLimit,
 }
 
 struct TestSession {
@@ -275,6 +276,7 @@ impl server::Handler for TestSession {
                     self.server.root.clone(),
                     self.server.links.clone(),
                     self.server.modes.clone(),
+                    self.server.write_limit.clone(),
                 );
                 tokio::spawn(async move {
                     russh_sftp::server::run(channel.into_stream(), handler).await;
@@ -299,12 +301,11 @@ impl Drop for VaultGuard {
     fn drop(&mut self) {
         let mut users = VAULT_USERS.lock().unwrap();
         *users -= 1;
-        if *users == 0 {
-            if let Ok(entry) =
+        if *users == 0
+            && let Ok(entry) =
                 keyring::Entry::new(crate::store::credential_service(), "vault-master-key")
-            {
-                let _ = entry.delete_credential();
-            }
+        {
+            let _ = entry.delete_credential();
         }
     }
 }
@@ -323,6 +324,7 @@ pub struct Fixture {
     pub modes: Modes,
     pub user_key: russh::keys::PrivateKey,
     pub sftp_opened: Arc<std::sync::atomic::AtomicUsize>,
+    pub write_limit: WriteLimit,
     responder: Responder,
     server_task: tokio::task::JoinHandle<()>,
     _vault: VaultGuard,
@@ -342,6 +344,7 @@ pub async fn serve(
     host_key: russh::keys::PrivateKey,
     allowed_key: russh::keys::PublicKey,
     sftp_opened: Arc<std::sync::atomic::AtomicUsize>,
+    write_limit: WriteLimit,
 ) -> (u16, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
@@ -353,6 +356,7 @@ pub async fn serve(
         modes,
         allowed_key,
         sftp_opened,
+        write_limit,
     };
     let config = Arc::new(server::Config {
         keys: vec![host_key],
@@ -380,6 +384,7 @@ impl Fixture {
         let links: Links = Default::default();
         let modes: Modes = Default::default();
         let sftp_opened = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let write_limit: WriteLimit = Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
         let (port, server_task) = serve(
             remote.path().to_path_buf(),
             links.clone(),
@@ -387,6 +392,7 @@ impl Fixture {
             host_key.clone(),
             user_key.public_key().clone(),
             sftp_opened.clone(),
+            write_limit.clone(),
         )
         .await;
         let address = format!("[127.0.0.1]:{port}");
@@ -421,6 +427,7 @@ impl Fixture {
             modes,
             user_key,
             sftp_opened,
+            write_limit,
             responder,
             server_task,
             _vault: vault,
@@ -479,6 +486,54 @@ impl Fixture {
                     .contains(&v["status"].as_str().unwrap_or(""))
         })
         .await
+    }
+
+    /// A transfer request between the fixture's local dir and remote `/`.
+    pub fn request(
+        &self,
+        id: &str,
+        session: &str,
+        direction: &str,
+        name: &str,
+    ) -> crate::transfer::Transfer {
+        crate::transfer::Transfer {
+            id: id.into(),
+            session_id: session.into(),
+            direction: direction.into(),
+            local_directory: self.local.path().to_string_lossy().into(),
+            remote_directory: "/".into(),
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Starts a transfer and waits for its final event.
+    pub async fn transfer(&self, request: crate::transfer::Transfer) -> Value {
+        let id = request.id.clone();
+        crate::transfer::start(self.sink.clone(), self.state.clone(), request)
+            .await
+            .unwrap();
+        let result = self.finished(&id).await;
+        // Later attempts reuse the id: forget this attempt's events.
+        self.events
+            .lock()
+            .unwrap()
+            .retain(|(name, value)| !(name == "transfer" && value["id"] == id.as_str()));
+        result
+    }
+
+    /// Opens a password session on the fixture.
+    pub async fn connect(&self, id: &str) -> Arc<crate::ssh::Session> {
+        crate::ssh::establish(
+            self.sink.clone(),
+            self.state.clone(),
+            id.into(),
+            self.host("h", USER, "password"),
+            PASSWORD.into(),
+        )
+        .await
+        .unwrap();
+        self.state.sessions.lock().await.get(id).unwrap().clone()
     }
 
     pub fn clear_events(&self) {

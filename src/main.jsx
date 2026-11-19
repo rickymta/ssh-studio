@@ -9,6 +9,7 @@ import { HostModal } from "./components/HostModal.jsx";
 import { PasswordModal } from "./components/PasswordModal.jsx";
 import { KeyModal } from "./components/KeyModal.jsx";
 import { SessionPane } from "./components/SessionPane.jsx";
+import { TransferPanel } from "./components/TransferPanel.jsx";
 import {
   Terminal,
   Server,
@@ -17,8 +18,6 @@ import {
   Search,
   Folder,
   FolderOpen,
-  ArrowUp,
-  ArrowDown,
   Upload,
   Download,
   X,
@@ -39,9 +38,8 @@ import {
   call,
   uid,
   cleanError,
-  size,
-  statuses,
   osLabel,
+  retryRequest,
 } from "./lib.js";
 import { Button, IconButton, Modal } from "./components/ui.jsx";
 
@@ -116,7 +114,19 @@ function App() {
           const index = old.findIndex((t) => t.id === payload.id);
           return index < 0
             ? [payload, ...old]
-            : old.map((t) => (t.id === payload.id ? payload : t));
+            : old.map((t) =>
+                t.id === payload.id
+                  ? {
+                      ...t,
+                      ...payload,
+                      // Final events do not repeat progress; keep the last known numbers.
+                      bytes: payload.bytes || t.bytes,
+                      total: payload.total || t.total,
+                      error: payload.error,
+                      resumable: payload.resumable,
+                    }
+                  : t,
+              );
         }),
       ),
     ])
@@ -767,78 +777,25 @@ function App() {
           ))}
         </div>
         {showTransfers && (
-          <section className="transfer-panel">
-            <div className="transfer-heading">
-              <strong>
-                <ArrowUp size={15} />
-                <ArrowDown size={15} />
-                Truyền file <span>{pending} đang chờ / đang truyền</span>
-              </strong>
-              <div className="actions">
-                <button
-                  className="text-button"
-                  onClick={() =>
-                    setTransfers((old) =>
-                      old.filter((t) =>
-                        ["running", "queued"].includes(t.status),
-                      ),
-                    )
-                  }
-                >
-                  Dọn lịch sử
-                </button>
-                <IconButton
-                  title="Thu gọn"
-                  icon={ChevronDown}
-                  onClick={() => setShowTransfers(false)}
-                />
-              </div>
-            </div>
-            <div className="transfer-list">
-              {transfers.length ? (
-                transfers.map((t) => (
-                  <div className="transfer-row" key={t.id}>
-                    {t.direction === "upload" ? (
-                      <Upload size={17} />
-                    ) : (
-                      <Download size={17} />
-                    )}
-                    <div className="transfer-name">
-                      <strong>{t.name}</strong>
-                      <small>
-                        {t.error || `${size(t.bytes)} / ${size(t.total)}`}
-                      </small>
-                    </div>
-                    <div className="progress">
-                      <div
-                        style={{
-                          width: `${t.total ? Math.min(100, (t.bytes / t.total) * 100) : 0}%`,
-                        }}
-                      />
-                    </div>
-                    <span className={`transfer-status ${t.status}`}>
-                      {statuses[t.status]}
-                    </span>
-                    {["running", "queued"].includes(t.status) ? (
-                      <IconButton
-                        icon={X}
-                        title="Hủy truyền"
-                        onClick={() =>
-                          run(() => call("cancel_transfer", { id: t.id }))
-                        }
-                      />
-                    ) : (
-                      <span className="icon-placeholder" />
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="empty-inline">
-                  Chưa có file nào được truyền trong phiên làm việc này.
-                </div>
-              )}
-            </div>
-          </section>
+          <TransferPanel
+            transfers={transfers}
+            close={() => setShowTransfers(false)}
+            clear={() =>
+              setTransfers((old) =>
+                old.filter((t) => ["running", "queued"].includes(t.status)),
+              )
+            }
+            cancel={(t) => run(() => call("cancel_transfer", { id: t.id }))}
+            retry={(t) => {
+              if (
+                !sessions.some(
+                  (s) => s.id === t.sessionId && s.status === "connected",
+                )
+              )
+                return notify("Phiên của tác vụ này chưa kết nối lại.", true);
+              run(() => call("transfer", { request: retryRequest(t) }));
+            }}
+          />
         )}
         <footer className="statusbar">
           <span>

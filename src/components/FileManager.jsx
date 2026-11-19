@@ -2,18 +2,36 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { FilePane } from "./FilePane.jsx";
 import { NameModal } from "./NameModal.jsx";
+import { ConflictModal } from "./ConflictModal.jsx";
 import { FolderOpen } from "lucide-react";
-import { call, uid, cleanError, isFolder } from "../lib.js";
+import {
+  call,
+  uid,
+  cleanError,
+  desktop,
+  planConflicts,
+  splitPath,
+} from "../lib.js";
+
+const emptySelection = { selection: [], anchor: null };
 
 export function FileManager({ session, home, notify, transfers, showQueue }) {
   const [local, setLocal] = useState({ path: home, parent: home, files: [] });
   const [remote, setRemote] = useState({ path: ".", parent: ".", files: [] });
-  const [selected, setSelected] = useState({ local: null, remote: null });
+  const [selected, setSelected] = useState({
+    local: emptySelection,
+    remote: emptySelection,
+  });
   const [loading, setLoading] = useState({});
   const [errors, setErrors] = useState({});
   const [dialog, setDialog] = useState(null);
+  const [conflict, setConflict] = useState(null);
+  const [drag, setDrag] = useState(null);
+  const [dropHover, setDropHover] = useState(false);
+  const root = useRef(null);
   const paths = useRef({ local: home, remote: "." });
   const revisions = useRef({ local: 0, remote: 0 });
+  const connected = session.status === "connected";
   const load = useCallback(
     async (side, directory) => {
       const version = ++revisions.current[side];
@@ -25,8 +43,9 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
         });
         if (version !== revisions.current[side]) return;
         (side === "local" ? setLocal : setRemote)(result);
+        if (paths.current[side] !== result.path)
+          setSelected((old) => ({ ...old, [side]: emptySelection }));
         paths.current[side] = result.path;
-        setSelected((old) => ({ ...old, [side]: null }));
         setErrors((old) => ({ ...old, [side]: "" }));
       } catch (e) {
         if (version === revisions.current[side])
@@ -42,20 +61,28 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
     load("local", home);
   }, [home]);
   useEffect(() => {
-    if (session.status === "connected") load("remote", ".");
+    if (connected) load("remote", ".");
   }, [session.status]);
-  const completed = transfers.filter(
-    (t) => t.sessionId === session.id && t.status === "completed",
+  const finished = transfers.filter(
+    (t) =>
+      t.sessionId === session.id &&
+      ["completed", "failed", "cancelled"].includes(t.status),
   ).length;
   useEffect(() => {
-    if (completed) {
+    if (finished) {
       load("local", paths.current.local);
-      load("remote", paths.current.remote);
+      if (connected) load("remote", paths.current.remote);
     }
-  }, [completed]);
+  }, [finished]);
+
+  const entries = (side) => {
+    const listing = side === "local" ? local : remote;
+    const names = selected[side].selection;
+    return listing.files.filter((f) => names.includes(f.name));
+  };
   const action = async (side, type, value) => {
     try {
-      const entry = selected[side];
+      const entry = entries(side)[0];
       await call("file_action", {
         sessionId: side === "remote" ? session.id : null,
         directory: paths.current[side],
@@ -70,54 +97,227 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
       notify(e, true);
     }
   };
-  const transfer = async (side) => {
-    const entry = selected[side];
-    if (!entry || isFolder(entry))
-      return notify(
-        "Chọn một file thường để truyền. Với thư mục, hãy nén trước.",
-        true,
-      );
-    try {
-      await call("transfer", {
-        request: {
-          id: uid(),
-          sessionId: session.id,
-          direction: side === "local" ? "upload" : "download",
-          localDirectory: local.path,
-          remoteDirectory: remote.path,
+  const remove = async (side) => {
+    const list = entries(side);
+    if (!list.length) return;
+    const label =
+      list.length === 1 ? `“${list[0].name}”` : `${list.length} mục đã chọn`;
+    if (
+      !(await confirm(
+        `Xóa ${label}? Thư mục phải rỗng. Không thể hoàn tác.`,
+        { title: "Xóa file", kind: "warning" },
+      ))
+    )
+      return;
+    for (const entry of list) {
+      try {
+        await call("file_action", {
+          sessionId: side === "remote" ? session.id : null,
+          directory: paths.current[side],
           name: entry.name,
-        },
-      });
-      showQueue();
-    } catch (e) {
-      notify(e, true);
+          newName: null,
+          action: "delete",
+          isDirectory: entry.directory || false,
+        });
+      } catch (e) {
+        notify(`${entry.name}: ${cleanError(e)}`, true);
+        break;
+      }
     }
+    await load(side, paths.current[side]);
   };
+
+  /** Transfers `items` ({directory, name}) to `toDirectory` on the other side. */
+  const send = async (direction, items, toDirectory) => {
+    if (!items.length) return;
+    if (!connected) return notify("Kết nối server trước khi truyền file.", true);
+    const to = direction === "upload" ? "remote" : "local";
+    let existing;
+    try {
+      existing = (
+        await call("list_files", {
+          sessionId: to === "remote" ? session.id : null,
+          directory: toDirectory,
+        })
+      ).files.map((f) => (to === "local" ? f.name.toLowerCase() : f.name));
+    } catch (e) {
+      return notify(e, true);
+    }
+    const key = (name) => (to === "local" ? name.toLowerCase() : name);
+    const byKey = new Map(items.map((item) => [key(item.name), item]));
+    const plan = await planConflicts([...byKey.keys()], existing, (k) =>
+      new Promise((resolve) =>
+        setConflict({
+          name: byKey.get(k).name,
+          side: to,
+          resolve: (answer) => {
+            setConflict(null);
+            resolve(answer);
+          },
+        }),
+      ),
+    );
+    if (!plan) return;
+    let sent = 0;
+    for (const { name: k, conflict } of plan) {
+      const item = byKey.get(k);
+      try {
+        await call("transfer", {
+          request: {
+            id: uid(),
+            sessionId: session.id,
+            direction,
+            localDirectory: direction === "upload" ? item.directory : toDirectory,
+            remoteDirectory:
+              direction === "upload" ? toDirectory : item.directory,
+            name: item.name,
+            conflict,
+          },
+        });
+        sent++;
+      } catch (e) {
+        notify(`${item.name}: ${cleanError(e)}`, true);
+      }
+    }
+    if (sent) showQueue();
+  };
+  const transferSelection = (side, toDirectory) =>
+    send(
+      side === "local" ? "upload" : "download",
+      entries(side).map((f) => ({
+        directory: paths.current[side],
+        name: f.name,
+      })),
+      toDirectory ?? paths.current[side === "local" ? "remote" : "local"],
+    );
+
+  // Dragging rows between the panes uses pointer events: the webview's native drag-drop
+  // handler (needed for files dropped from Explorer) swallows HTML5 drag events.
+  const startDrag = (side, file, e) => {
+    if (e.button !== 0) return;
+    const origin = { x: e.clientX, y: e.clientY };
+    const names = selected[side].selection.includes(file.name)
+      ? selected[side].selection
+      : [file.name];
+    let active = false;
+    const target = (ev) =>
+      document
+        .elementFromPoint(ev.clientX, ev.clientY)
+        ?.closest?.("[data-drop-side]");
+    const move = (ev) => {
+      if (!active && Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) < 6)
+        return;
+      if (!active) {
+        active = true;
+        if (!selected[side].selection.includes(file.name))
+          setSelected((old) => ({
+            ...old,
+            [side]: { selection: [file.name], anchor: file.name },
+          }));
+      }
+      const over = target(ev);
+      setDrag({
+        side,
+        count: names.length,
+        x: ev.clientX,
+        y: ev.clientY,
+        over:
+          over && over.dataset.dropSide !== side
+            ? over.dataset.dropFolder || over.dataset.dropSide
+            : null,
+      });
+    };
+    const up = (ev) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setDrag(null);
+      if (!active) return;
+      const over = target(ev);
+      if (!over || over.dataset.dropSide === side) return;
+      const destination = over.dataset.dropPath;
+      send(
+        side === "local" ? "upload" : "download",
+        names.map((name) => ({ directory: paths.current[side], name })),
+        destination,
+      );
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  // Files dropped from Explorer / Finder onto the remote pane are uploaded.
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => {
+    if (!desktop) return;
+    let off;
+    let disposed = false;
+    const remoteTarget = (position) => {
+      const scale = window.devicePixelRatio || 1;
+      const el = document
+        .elementFromPoint(position.x / scale, position.y / scale)
+        ?.closest?.('[data-drop-side="remote"]');
+      return el && root.current?.contains(el) ? el : null;
+    };
+    import("@tauri-apps/api/webview").then(({ getCurrentWebview }) =>
+      getCurrentWebview()
+        .onDragDropEvent(({ payload }) => {
+          if (payload.type === "over" || payload.type === "enter")
+            setDropHover(!!remoteTarget(payload.position));
+          else if (payload.type === "leave") setDropHover(false);
+          else if (payload.type === "drop") {
+            setDropHover(false);
+            const el = remoteTarget(payload.position);
+            if (!el || !payload.paths?.length) return;
+            sendRef.current(
+              "upload",
+              payload.paths.map(splitPath).filter((p) => p.name),
+              el.dataset.dropPath,
+            );
+          }
+        })
+        .then((unlisten) => (disposed ? unlisten() : (off = unlisten))),
+    );
+    return () => {
+      disposed = true;
+      off?.();
+    };
+  }, []);
+
   return (
-    <div className="file-manager">
+    <div className="file-manager" ref={root}>
       <div className="file-hint">
         <FolderOpen size={14} />
         Hai khung local / remote
-        <span>Nhấp đúp thư mục để mở · Chọn file để truyền</span>
+        <span>
+          Ctrl/Shift để chọn nhiều · Kéo thả giữa hai khung hoặc từ Explorer
+          vào remote
+        </span>
       </div>
       <div className="file-panes">
         {["local", "remote"].map((side) => {
           const listing = side === "local" ? local : remote;
-          const entry = selected[side];
-          const disabled = side === "remote" && session.status !== "connected";
+          const disabled = side === "remote" && !connected;
+          const chosen = entries(side);
           return (
             <FilePane
               key={side}
               side={side}
               listing={listing}
-              selected={entry}
+              selection={selected[side]}
               loading={loading[side]}
               error={errors[side]}
               disabled={disabled}
-              load={(directory) => load(side, directory)}
-              select={(entry) =>
-                setSelected((old) => ({ ...old, [side]: entry }))
+              dropActive={
+                (drag && drag.over && drag.side !== side) ||
+                (side === "remote" && dropHover)
               }
+              dropFolder={drag && drag.side !== side ? drag.over : null}
+              load={(directory) => load(side, directory)}
+              select={(next) =>
+                setSelected((old) => ({ ...old, [side]: next }))
+              }
+              startDrag={(file, e) => startDrag(side, file, e)}
               create={() =>
                 setDialog({
                   side,
@@ -131,24 +331,25 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
                   side,
                   type: "rename",
                   title: "Đổi tên",
-                  value: entry.name,
+                  value: chosen[0].name,
                 })
               }
-              remove={async () => {
-                if (
-                  await confirm(
-                    `Xóa “${entry.name}”? Thư mục phải rỗng. Không thể hoàn tác.`,
-                    { title: "Xóa file", kind: "warning" },
-                  )
-                )
-                  action(side, "delete");
-              }}
-              transfer={() => transfer(side)}
-              canTransfer={session.status === "connected" && !errors.remote}
+              remove={() => remove(side)}
+              transfer={() => transferSelection(side)}
+              canTransfer={connected && !errors.remote && !errors.local}
             />
           );
         })}
       </div>
+      {drag && (
+        <div
+          className="drag-ghost"
+          style={{ left: drag.x + 14, top: drag.y + 10 }}
+        >
+          {drag.count === 1 ? "1 mục" : `${drag.count} mục`} →{" "}
+          {drag.side === "local" ? "remote" : "local"}
+        </div>
+      )}
       {dialog && (
         <NameModal
           {...dialog}
@@ -156,6 +357,7 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
           save={(value) => action(dialog.side, dialog.type, value)}
         />
       )}
+      {conflict && <ConflictModal {...conflict} />}
     </div>
   );
 }

@@ -4,6 +4,7 @@ mod files;
 mod integration;
 mod ssh;
 mod store;
+mod transfer;
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc};
 use store::{Host, Store};
@@ -29,6 +30,8 @@ pub struct AppState {
     sessions: ssh::Sessions,
     verdicts: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     transfers: Mutex<HashMap<String, Arc<Notify>>>,
+    /// Destinations currently being written by a transfer (no two writers per target).
+    targets: std::sync::Mutex<std::collections::HashSet<String>>,
     slots: Arc<Semaphore>,
 }
 impl AppState {
@@ -38,6 +41,7 @@ impl AppState {
             sessions: Mutex::new(HashMap::new()),
             verdicts: Mutex::new(HashMap::new()),
             transfers: Mutex::new(HashMap::new()),
+            targets: Default::default(),
             slots: Arc::new(Semaphore::new(2)),
         }
     }
@@ -277,9 +281,9 @@ async fn file_action(
 async fn transfer(
     app: tauri::AppHandle,
     state: Shared<'_>,
-    request: files::Transfer,
+    request: transfer::Transfer,
 ) -> Result<(), String> {
-    files::start(Events::desktop(app), state.inner().clone(), request)
+    transfer::start(Events::desktop(app), state.inner().clone(), request)
         .await
         .map_err(err)
 }

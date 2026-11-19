@@ -1139,6 +1139,33 @@ select option {
 .file-table tr.selected {
   background: #204039;
 }
+.file-table tr.drop-target,
+.file-pane.drop-active .file-table-wrap {
+  background: #1f3a46;
+  outline: 1px dashed var(--mint);
+  outline-offset: -2px;
+}
+.file-table tbody tr {
+  user-select: none;
+}
+.drag-ghost {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: var(--mint-dark);
+  color: #fff;
+  font-size: 12px;
+  box-shadow: 0 6px 18px #0008;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
 .file-table .folder-icon {
   color: #d9bd7e;
   fill: #d9bd7e20;

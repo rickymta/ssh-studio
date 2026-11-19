@@ -48,15 +48,16 @@ async fn simultaneous_sessions_sftp_roundtrip_and_host_key_rejection() {
 
     let payload = vec![91u8; 250_000];
     std::fs::write(fx.local.path().join("upload.bin"), &payload).unwrap();
-    let request = files::Transfer {
+    let request = crate::transfer::Transfer {
         id: "upload".into(),
         session_id: "one".into(),
         direction: "upload".into(),
         local_directory: fx.local.path().to_string_lossy().into(),
         remote_directory: "/".into(),
         name: "upload.bin".into(),
+        ..Default::default()
     };
-    files::start(fx.sink.clone(), fx.state.clone(), request.clone())
+    crate::transfer::start(fx.sink.clone(), fx.state.clone(), request.clone())
         .await
         .unwrap();
     let result = fx.finished("upload").await;
@@ -68,10 +69,10 @@ async fn simultaneous_sessions_sftp_roundtrip_and_host_key_rejection() {
 
     let download = fx.local.path().join("download");
     std::fs::create_dir(&download).unwrap();
-    files::start(
+    crate::transfer::start(
         fx.sink.clone(),
         fx.state.clone(),
-        files::Transfer {
+        crate::transfer::Transfer {
             id: "download".into(),
             direction: "download".into(),
             local_directory: download.to_string_lossy().into(),
@@ -85,10 +86,10 @@ async fn simultaneous_sessions_sftp_roundtrip_and_host_key_rejection() {
     assert_eq!(result["status"], "completed", "{result}");
     assert_eq!(std::fs::read(download.join("upload.bin")).unwrap(), payload);
 
-    files::start(
+    crate::transfer::start(
         fx.sink.clone(),
         fx.state.clone(),
-        files::Transfer {
+        crate::transfer::Transfer {
             id: "duplicate".into(),
             ..request.clone()
         },

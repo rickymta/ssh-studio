@@ -79,6 +79,8 @@ pub enum Input {
     Close,
 }
 pub struct Session {
+    /// `[host]:port` of the server (used to detect two writers on the same remote path).
+    pub address: String,
     pub handle: Arc<client::Handle<Handler>>,
     pub input: mpsc::Sender<Input>,
     pub sftp: Mutex<Option<Arc<SftpSession>>>,
@@ -168,6 +170,7 @@ pub async fn establish(
     await_channel_success(&mut channel).await?;
     let (tx, mut rx) = mpsc::channel(256);
     let session = Arc::new(Session {
+        address: format!("[{}]:{}", host.host, host.port),
         handle: Arc::new(handle),
         input: tx,
         sftp: Mutex::new(None),
