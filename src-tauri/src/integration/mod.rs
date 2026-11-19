@@ -4,6 +4,7 @@ mod basic;
 mod bugfixes;
 mod edits;
 pub(crate) mod fixture;
+mod forwards;
 mod sftp_disk;
 mod sync;
 mod transfers;

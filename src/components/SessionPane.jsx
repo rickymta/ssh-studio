@@ -1,7 +1,14 @@
 import React from "react";
 import { TerminalView } from "./TerminalView.jsx";
 import { FileManager } from "./FileManager.jsx";
-import { Terminal, FolderOpen, RefreshCw, LayoutGrid } from "lucide-react";
+import { PortsPanel } from "./PortsPanel.jsx";
+import {
+  Terminal,
+  FolderOpen,
+  RefreshCw,
+  LayoutGrid,
+  Cable,
+} from "lucide-react";
 import { statuses } from "../lib.js";
 import { Button } from "./ui.jsx";
 
@@ -14,7 +21,13 @@ export function SessionPane({
   showQueue,
   reconnect,
   setView,
+  forwards,
+  savedHost,
+  saveForwards,
 }) {
+  const running = Object.values(forwards || {}).filter(
+    (f) => f.sessionId === session.id && f.status === "running",
+  ).length;
   return (
     <section
       className="session-pane"
@@ -42,6 +55,13 @@ export function SessionPane({
           >
             <LayoutGrid size={16} />
             Chia đôi
+          </button>
+          <button
+            className={session.view === "ports" ? "selected" : ""}
+            onClick={() => setView("ports")}
+          >
+            <Cable size={16} />
+            Ports{running > 0 && <b className="count-badge">{running}</b>}
           </button>
         </div>
         <span className="session-address mono">
@@ -71,7 +91,11 @@ export function SessionPane({
       <div className={`session-body ${session.view}`}>
         <div
           className="terminal-wrap"
-          style={{ display: session.view === "files" ? "none" : "flex" }}
+          style={{
+            display: ["files", "ports"].includes(session.view)
+              ? "none"
+              : "flex",
+          }}
         >
           <div className="terminal-caption">
             <Terminal size={13} />
@@ -80,12 +104,21 @@ export function SessionPane({
           </div>
           <TerminalView
             id={session.id}
-            visible={visible && session.view !== "files"}
+            visible={visible && !["files", "ports"].includes(session.view)}
             status={session.status}
             notify={notify}
           />
         </div>
-        {session.view !== "terminal" && (
+        {session.view === "ports" && (
+          <PortsPanel
+            session={session}
+            savedHost={savedHost}
+            forwards={forwards || {}}
+            notify={notify}
+            saveForwards={saveForwards}
+          />
+        )}
+        {["files", "split"].includes(session.view) && (
           <FileManager
             session={session}
             home={home}

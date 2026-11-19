@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod edit;
 mod files;
+mod forward;
 #[cfg(test)]
 mod integration;
 mod proxy;
@@ -40,6 +41,8 @@ pub struct AppState {
     prompts: std::sync::Mutex<HashMap<String, oneshot::Sender<Option<Vec<String>>>>>,
     /// SSH agent socket / named pipe override (tests); `None` uses the system agent.
     agent_path: std::sync::Mutex<Option<String>>,
+    /// Running port forwards by `sessionId:specId`.
+    forwards: std::sync::Mutex<HashMap<String, forward::Running>>,
 }
 impl AppState {
     pub fn new(store: Store) -> Self {
@@ -52,6 +55,7 @@ impl AppState {
             slots: Arc::new(Semaphore::new(2)),
             prompts: Default::default(),
             agent_path: Default::default(),
+            forwards: Default::default(),
         }
     }
 }
@@ -397,6 +401,30 @@ async fn sync_run(
         .await
         .map_err(err)
 }
+#[tauri::command]
+async fn start_forward(
+    app: tauri::AppHandle,
+    state: Shared<'_>,
+    session_id: String,
+    spec: forward::Spec,
+) -> Result<Value, String> {
+    forward::start(
+        Events::desktop(app),
+        state.inner().clone(),
+        session_id,
+        spec,
+    )
+    .await
+    .map_err(err)
+}
+#[tauri::command]
+async fn stop_forward(state: Shared<'_>, id: String) -> Result<bool, String> {
+    Ok(forward::stop(state.inner(), &id))
+}
+#[tauri::command]
+async fn list_forwards(state: Shared<'_>) -> Result<Vec<Value>, String> {
+    Ok(forward::list(state.inner()))
+}
 
 fn main() {
     tauri::Builder::default()
@@ -430,7 +458,10 @@ fn main() {
             delete_entries,
             chmod,
             sync_preview,
-            sync_run
+            sync_run,
+            start_forward,
+            stop_forward,
+            list_forwards
         ])
         .run(tauri::generate_context!())
         .expect("Không khởi động được SSH Studio");

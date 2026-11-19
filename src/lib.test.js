@@ -3,8 +3,11 @@ import {
   binaryBytes,
   clipboardChord,
   deleteSummary,
+  forwardLabel,
+  forwardRows,
   fromBase64,
   isFolder,
+  isLoopback,
   lineEnding,
   modeString,
   parseMode,
@@ -214,6 +217,46 @@ describe("sync planning (F3)", () => {
     expect(syncRequest(preview, "s", "upload", checked, true).delete).toEqual([
       "old",
       "robots.txt",
+    ]);
+  });
+});
+
+describe("port forwarding (F5)", () => {
+  const web = {
+    id: "web",
+    kind: "local",
+    bindHost: "127.0.0.1",
+    bindPort: 8080,
+    targetHost: "db",
+    targetPort: 5432,
+  };
+  const socks = { ...web, id: "socks", kind: "dynamic", bindPort: 0 };
+  it("labels forwards with the port actually bound", () => {
+    expect(forwardLabel(web)).toBe("127.0.0.1:8080 → db:5432");
+    expect(forwardLabel(socks, 50123)).toBe("SOCKS5 127.0.0.1:50123");
+  });
+  it("warns only for non-loopback listeners", () => {
+    expect(isLoopback("127.0.0.1")).toBe(true);
+    expect(isLoopback("localhost")).toBe(true);
+    expect(isLoopback("::1")).toBe(true);
+    expect(isLoopback("0.0.0.0")).toBe(false);
+    expect(isLoopback("192.168.1.5")).toBe(false);
+  });
+  it("merges saved specs with live state of this session", () => {
+    const live = {
+      "s:web": { sessionId: "s", spec: web, status: "running", active: 1 },
+      "s:socks": { sessionId: "s", spec: socks, status: "running" },
+      "t:socks": { sessionId: "t", spec: socks, status: "running" },
+      "s:old": {
+        sessionId: "s",
+        spec: { ...web, id: "old" },
+        status: "stopped",
+      },
+    };
+    const rows = forwardRows([web], live, "s");
+    expect(rows.map((r) => [r.spec.id, r.saved, r.state?.status])).toEqual([
+      ["web", true, "running"],
+      ["socks", false, "running"],
     ]);
   });
 });

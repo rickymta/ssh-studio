@@ -210,6 +210,37 @@ export function syncRequest(preview, sessionId, direction, checked, mirror) {
   };
 }
 
+/** Port forwarding (F5). */
+export const forwardKinds = {
+  local: "Local (-L)",
+  remote: "Remote (-R)",
+  dynamic: "Dynamic SOCKS5 (-D)",
+};
+export const isLoopback = (host) =>
+  /^(127\.\d+\.\d+\.\d+|localhost|::1|\[::1\])$/i.test(String(host).trim());
+export function forwardLabel(spec, boundPort) {
+  const bind = `${spec.bindHost}:${boundPort || spec.bindPort}`;
+  return spec.kind === "dynamic"
+    ? `SOCKS5 ${bind}`
+    : `${bind} → ${spec.targetHost}:${spec.targetPort}`;
+}
+/** Saved forwards of a host plus forwards started only for this session. */
+export function forwardRows(saved = [], live = {}, sessionId) {
+  const rows = saved.map((spec) => ({
+    spec,
+    saved: true,
+    state: live[`${sessionId}:${spec.id}`],
+  }));
+  for (const state of Object.values(live))
+    if (
+      state.sessionId === sessionId &&
+      state.status !== "stopped" &&
+      !saved.some((s) => s.id === state.spec.id)
+    )
+      rows.push({ spec: state.spec, saved: false, state });
+  return rows;
+}
+
 /** Human label for the backend's `std::env::consts::OS`. */
 export function osLabel(os) {
   return (

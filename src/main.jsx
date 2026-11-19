@@ -71,6 +71,7 @@ function App() {
   const [showTransfers, setShowTransfers] = useState(false);
   const [verification, setVerification] = useState([]);
   const [prompts, setPrompts] = useState([]);
+  const [forwards, setForwards] = useState({});
   const [ready, setReady] = useState(false);
   const [recoveredSeen, setRecoveredSeen] = useState(false);
   const sessionsRef = useRef(sessions);
@@ -116,6 +117,12 @@ function App() {
       ),
       register("host-verification-finished", (payload) =>
         setVerification((old) => old.filter((item) => item.id !== payload.id)),
+      ),
+      register("forward", (payload) =>
+        setForwards((old) => ({ ...old, [payload.id]: payload })),
+      ),
+      call("list_forwards").then((list) =>
+        setForwards(Object.fromEntries(list.map((f) => [f.id, f]))),
       ),
       register("auth-prompt", (payload) =>
         setPrompts((old) => [...old, payload]),
@@ -786,6 +793,17 @@ function App() {
               transfers={transfers}
               showQueue={() => setShowTransfers(true)}
               reconnect={() => connectHost(session.host, session.id)}
+              forwards={forwards}
+              savedHost={data.hosts.find((h) => h.id === session.host.id)}
+              saveForwards={async (list) => {
+                const host = data.hosts.find((h) => h.id === session.host.id);
+                if (!host) throw "Server đã bị xóa khỏi danh sách.";
+                setData(
+                  await call("save_host", {
+                    host: { ...host, forwards: list },
+                  }),
+                );
+              }}
               setView={(view) =>
                 setSessions((old) =>
                   old.map((s) => (s.id === session.id ? { ...s, view } : s)),

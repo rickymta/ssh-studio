@@ -24,6 +24,9 @@ pub struct Host {
     pub jump_host_id: String,
     #[serde(default)]
     pub proxy: Proxy,
+    /// Port forwards started automatically when the session connects (F5).
+    #[serde(default)]
+    pub forwards: Vec<crate::forward::Spec>,
 }
 pub const AUTH_METHODS: [&str; 4] = ["password", "key", "agent", "interactive"];
 
@@ -82,6 +85,9 @@ impl Host {
             !self.proxy.enabled() || self.jump_host_id.is_empty(),
             "Chọn jump host hoặc proxy, không dùng cả hai cho cùng server."
         );
+        for forward in &self.forwards {
+            forward.validate()?;
+        }
         Ok(())
     }
     /// Moves a proxy password typed in the form into the vault. `previous` is the stored

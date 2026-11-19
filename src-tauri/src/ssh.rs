@@ -17,9 +17,29 @@ pub struct Handler {
     pub app: crate::Events,
     pub state: Arc<AppState>,
     pub address: String,
+    /// Remote (-R) forwards of this connection, by server port.
+    pub routes: crate::forward::Routes,
 }
 impl client::Handler for Handler {
     type Error = anyhow::Error;
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        _connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        // Unknown ports are refused (dropping `reply` rejects the channel).
+        let route = self.routes.lock().unwrap().get(&connected_port).cloned();
+        if let Some(route) = route {
+            reply.accept().await;
+            crate::forward::serve_remote(route, channel);
+        }
+        Ok(())
+    }
     async fn check_server_key(
         &mut self,
         key: &PublicKeyOrCertificate,
@@ -88,6 +108,7 @@ pub struct Session {
     pub handle: Arc<client::Handle<Handler>>,
     /// Jump host connections carrying this session (closest to the target first).
     pub jumps: Vec<Arc<client::Handle<Handler>>>,
+    pub routes: crate::forward::Routes,
     pub input: mpsc::Sender<Input>,
     pub sftp: Mutex<Option<Arc<SftpSession>>>,
 }
@@ -399,7 +420,7 @@ async fn authenticate(ctx: &Ctx<'_>, handle: &mut Handle, host: &Host) -> anyhow
     anyhow::bail!("Xác thực thất bại: quá nhiều bước.")
 }
 
-type Connected = (Handle, Vec<Arc<Handle>>);
+type Connected = (Handle, Vec<Arc<Handle>>, crate::forward::Routes);
 type Opening<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<Connected>> + Send + 'a>>;
 
@@ -414,10 +435,12 @@ fn open<'a>(ctx: &'a Ctx<'a>, host: Host, mut visited: Vec<String>) -> Opening<'
         );
         anyhow::ensure!(visited.len() < 8, "Chuỗi jump host quá dài.");
         visited.push(host.id.clone());
+        let routes = crate::forward::Routes::default();
         let handler = Handler {
             app: ctx.app.clone(),
             state: ctx.state.clone(),
             address: format!("[{}]:{}", host.host, host.port),
+            routes: routes.clone(),
         };
         let timeout = Duration::from_secs(140);
         let (mut handle, jumps) = if !host.jump_host_id.is_empty() {
@@ -435,7 +458,7 @@ fn open<'a>(ctx: &'a Ctx<'a>, host: Host, mut visited: Vec<String>) -> Opening<'
                     anyhow::anyhow!("Jump host của “{}” không còn tồn tại.", host.name)
                 })?;
             let jump_name = jump.name.clone();
-            let (jump_handle, mut chain) = open(ctx, jump, visited).await?;
+            let (jump_handle, mut chain, _) = open(ctx, jump, visited).await?;
             let channel = jump_handle
                 .channel_open_direct_tcpip(host.host.clone(), host.port as u32, "127.0.0.1", 0)
                 .await
@@ -474,7 +497,7 @@ fn open<'a>(ctx: &'a Ctx<'a>, host: Host, mut visited: Vec<String>) -> Opening<'
         authenticate(ctx, &mut handle, &host)
             .await
             .map_err(|e| anyhow::anyhow!("{}: {e}", host.name))?;
-        Ok((handle, jumps))
+        Ok((handle, jumps, routes))
     })
 }
 
@@ -489,7 +512,7 @@ pub async fn establish(
         state: &state,
         session_id: &id,
     };
-    let (handle, jumps) = open(&ctx, host.clone(), vec![]).await?;
+    let (handle, jumps, routes) = open(&ctx, host.clone(), vec![]).await?;
     let mut channel = handle.channel_open_session().await?;
     channel
         .request_pty(true, "xterm-256color", 100, 30, 0, 0, &[])
@@ -502,6 +525,7 @@ pub async fn establish(
         address: format!("[{}]:{}", host.host, host.port),
         handle: Arc::new(handle),
         jumps,
+        routes,
         input: tx,
         sftp: Mutex::new(None),
     });
@@ -511,6 +535,14 @@ pub async fn establish(
         .await
         .insert(id.clone(), session.clone());
     let _ = app.emit("session", json!({"id":id,"status":"connected"}));
+    if !host.forwards.is_empty() {
+        tokio::spawn(crate::forward::autostart(
+            app.clone(),
+            state.clone(),
+            id.clone(),
+            host.forwards.clone(),
+        ));
+    }
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -535,6 +567,7 @@ pub async fn establish(
                 .disconnect(russh::Disconnect::ByApplication, "Session closed", "en")
                 .await;
         }
+        crate::forward::stop_session(&state, &id);
         state.sessions.lock().await.remove(&id);
         let _ = app.emit("session", json!({"id":id,"status":"closed"}));
     });

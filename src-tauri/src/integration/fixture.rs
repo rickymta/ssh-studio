@@ -461,6 +461,7 @@ impl Fixture {
             key_id: String::new(),
             jump_host_id: String::new(),
             proxy: Default::default(),
+            forwards: vec![],
         }
     }
 
