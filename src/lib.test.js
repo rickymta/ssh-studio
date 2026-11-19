@@ -3,6 +3,12 @@ import {
   backupFileName,
   binaryBytes,
   clipboardChord,
+  cycleTab,
+  defaultSettings,
+  shortcut,
+  terminalOptions,
+  withDefaults,
+  zoomFont,
   keyFileName,
   passwordProblem,
   restoreSummary,
@@ -294,6 +300,80 @@ describe("key export and backups (F6)", () => {
     ).toBe(
       "2 server mới, 1 key mới, 3 known host mới, bỏ qua 1 mục đã có, thay 1 fingerprint",
     );
+  });
+});
+
+describe("shortcuts and settings (F7)", () => {
+  const key = (k, mods = {}) => ({
+    type: "keydown",
+    key: k,
+    ctrlKey: true,
+    ...mods,
+  });
+  it("maps the application shortcuts", () => {
+    expect(shortcut(key("Tab"))).toEqual({ action: "nextTab" });
+    expect(shortcut(key("Tab", { shiftKey: true }))).toEqual({
+      action: "prevTab",
+    });
+    expect(shortcut(key("W", { shiftKey: true }))).toEqual({
+      action: "closeSession",
+    });
+    expect(shortcut(key("T", { shiftKey: true }))).toEqual({
+      action: "reopen",
+    });
+    expect(shortcut(key("F", { shiftKey: true }))).toEqual({
+      action: "search",
+    });
+    expect(shortcut(key("3", { code: "Digit3" }))).toEqual({
+      action: "tab",
+      index: 2,
+    });
+    // French AZERTY: Ctrl+1 reports "&" but the physical code is still Digit1.
+    expect(shortcut(key("&", { code: "Digit1" }))).toEqual({
+      action: "tab",
+      index: 0,
+    });
+    expect(shortcut(key("="))).toEqual({ action: "zoomIn" });
+    expect(shortcut(key("+", { shiftKey: true }))).toEqual({
+      action: "zoomIn",
+    });
+    expect(shortcut(key("-"))).toEqual({ action: "zoomOut" });
+    expect(shortcut(key("0", { code: "Digit0" }))).toEqual({
+      action: "zoomReset",
+    });
+  });
+  it("leaves shell chords alone", () => {
+    for (const k of ["c", "v", "w", "d", "r", "l", "a", "e", "u"])
+      expect(shortcut(key(k), true)).toBe(null);
+    expect(shortcut(key("k"), true)).toBe(null);
+    expect(shortcut(key("k"), false)).toEqual({ action: "findServer" });
+    expect(shortcut(key("K", { shiftKey: true }), true)).toEqual({
+      action: "findServer",
+    });
+    expect(shortcut({ type: "keydown", key: "Tab" })).toBe(null);
+    expect(shortcut(key("Tab", { altKey: true }))).toBe(null);
+    expect(shortcut({ ...key("Tab"), type: "keyup" })).toBe(null);
+  });
+  it("cycles tabs and zooms within bounds", () => {
+    expect(cycleTab(["a", "b", "c"], "c", 1)).toBe("a");
+    expect(cycleTab(["a", "b", "c"], "a", -1)).toBe("c");
+    expect(cycleTab(["a", "b"], "none", -1)).toBe("b");
+    expect(cycleTab([], "a", 1)).toBe(null);
+    expect(zoomFont(14, "zoomIn")).toBe(15);
+    expect(zoomFont(8, "zoomOut")).toBe(8);
+    expect(zoomFont(32, "zoomIn")).toBe(32);
+    expect(zoomFont(20, "zoomReset")).toBe(14);
+  });
+  it("fills missing settings with the defaults", () => {
+    const s = withDefaults({ fontSize: 18 });
+    expect(s.fontSize).toBe(18);
+    expect(s.confirmClose).toBe(true);
+    expect(terminalOptions(s)).toMatchObject({
+      fontSize: 18,
+      cursorStyle: "block",
+      scrollback: 10000,
+    });
+    expect(withDefaults(undefined)).toEqual(defaultSettings);
   });
 });
 

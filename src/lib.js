@@ -270,6 +270,76 @@ export function restoreSummary(r) {
   return parts.join(", ");
 }
 
+/** Preferences (F7); mirrors `store::Settings::default` for the web preview. */
+export const defaultSettings = {
+  fontFamily: "Cascadia Code, Consolas, monospace",
+  fontSize: 14,
+  lineHeight: 1.3,
+  scrollback: 10000,
+  cursorStyle: "block",
+  cursorBlink: true,
+  copyOnSelect: false,
+  defaultView: "terminal",
+  confirmClose: true,
+  closeToTray: false,
+};
+export const withDefaults = (settings) => ({
+  ...defaultSettings,
+  ...(settings || {}),
+});
+/** Font size after a zoom shortcut, kept within the backend range (8–32). */
+export function zoomFont(size, action) {
+  if (action === "zoomReset") return defaultSettings.fontSize;
+  const next = size + (action === "zoomIn" ? 1 : action === "zoomOut" ? -1 : 0);
+  return Math.min(32, Math.max(8, next));
+}
+/** xterm options derived from the settings. */
+export const terminalOptions = (s) => ({
+  fontFamily: s.fontFamily,
+  fontSize: s.fontSize,
+  lineHeight: s.lineHeight,
+  scrollback: s.scrollback,
+  cursorStyle: s.cursorStyle,
+  cursorBlink: s.cursorBlink,
+});
+
+/**
+ * Application shortcuts (F7). Returns `{action, index?}` or null. Ctrl+W/C/V and the other
+ * shell chords are never taken; inside the terminal plain Ctrl+K stays with readline (kill
+ * line), so the server search is Ctrl+Shift+K there.
+ */
+export function shortcut(e, inTerminal = false) {
+  if (e.type !== "keydown" || !e.ctrlKey || e.altKey || e.metaKey) return null;
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const code = e.code || "";
+  if (key === "Tab") return { action: e.shiftKey ? "prevTab" : "nextTab" };
+  if (e.shiftKey) {
+    if (key === "w") return { action: "closeSession" };
+    if (key === "t") return { action: "reopen" };
+    if (key === "f") return { action: "search" };
+    if (key === "k") return { action: "findServer" };
+  }
+  if (key === "k" && !e.shiftKey && !inTerminal)
+    return { action: "findServer" };
+  const digit = /^Digit([1-9])$/.exec(code);
+  if (!e.shiftKey && (digit || /^[1-9]$/.test(key)))
+    return { action: "tab", index: Number(digit ? digit[1] : key) - 1 };
+  if (key === "=" || key === "+" || code === "NumpadAdd")
+    return { action: "zoomIn" };
+  if (key === "-" || key === "_" || code === "NumpadSubtract")
+    return { action: "zoomOut" };
+  if (!e.shiftKey && (key === "0" || code === "Digit0" || code === "Numpad0"))
+    return { action: "zoomReset" };
+  return null;
+}
+/** Index of the tab after `active` when cycling with Ctrl+Tab / Ctrl+Shift+Tab. */
+export function cycleTab(ids, active, step) {
+  if (!ids.length) return null;
+  const i = ids.indexOf(active);
+  if (i < 0) return ids[step > 0 ? 0 : ids.length - 1];
+  return ids[(i + step + ids.length) % ids.length];
+}
+
 /** Human label for the backend's `std::env::consts::OS`. */
 export function osLabel(os) {
   return (

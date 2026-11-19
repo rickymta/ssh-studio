@@ -123,6 +123,72 @@ pub struct Data {
     pub hosts: Vec<Host>,
     pub keys: Vec<Key>,
     pub known_hosts: BTreeMap<String, String>,
+    /// Older workspace files have no settings; they start with the defaults (F7).
+    #[serde(default)]
+    pub settings: Settings,
+}
+
+/// Application preferences (F7). Unknown or missing fields fall back to the defaults.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    pub font_family: String,
+    pub font_size: u8,
+    pub line_height: f32,
+    pub scrollback: u32,
+    /// `block` | `bar` | `underline`.
+    pub cursor_style: String,
+    pub cursor_blink: bool,
+    pub copy_on_select: bool,
+    /// View of new sessions: `terminal` | `files` | `split`.
+    pub default_view: String,
+    /// Ask before closing a connected session or the window with work in progress.
+    pub confirm_close: bool,
+    /// Closing the window hides it to the system tray; sessions keep running.
+    pub close_to_tray: bool,
+}
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            font_family: "Cascadia Code, Consolas, monospace".into(),
+            font_size: 14,
+            line_height: 1.3,
+            scrollback: 10_000,
+            cursor_style: "block".into(),
+            cursor_blink: true,
+            copy_on_select: false,
+            default_view: "terminal".into(),
+            confirm_close: true,
+            close_to_tray: false,
+        }
+    }
+}
+pub const FONT_SIZES: std::ops::RangeInclusive<u8> = 8..=32;
+impl Settings {
+    /// Clamps numbers into usable ranges and replaces unknown choices with the defaults.
+    pub fn normalized(mut self) -> Self {
+        let defaults = Self::default();
+        self.font_family = self.font_family.trim().chars().take(200).collect();
+        if self.font_family.is_empty() {
+            self.font_family = defaults.font_family;
+        }
+        self.font_size = self
+            .font_size
+            .clamp(*FONT_SIZES.start(), *FONT_SIZES.end());
+        self.line_height = if self.line_height.is_finite() {
+            self.line_height.clamp(1.0, 2.0)
+        } else {
+            defaults.line_height
+        };
+        self.scrollback = self.scrollback.clamp(500, 100_000);
+        if !["block", "bar", "underline"].contains(&self.cursor_style.as_str()) {
+            self.cursor_style = defaults.cursor_style;
+        }
+        if !["terminal", "files", "split"].contains(&self.default_view.as_str()) {
+            self.default_view = defaults.default_view;
+        }
+        self
+    }
 }
 pub struct Store {
     pub data: Data,
@@ -295,6 +361,41 @@ mod tests {
         let mut bytes = STANDARD.decode(value).unwrap();
         bytes[20] ^= 1;
         assert!(decrypt(&STANDARD.encode(bytes), &k).is_err());
+    }
+    #[test]
+    fn settings_default_for_old_files_and_are_clamped() {
+        // A v0.1 workspace has no "settings" key.
+        let old: Data =
+            serde_json::from_str(r#"{"hosts":[],"keys":[],"knownHosts":{}}"#).unwrap();
+        assert_eq!(old.settings, Settings::default());
+        // Partial settings keep the other defaults.
+        let partial: Settings = serde_json::from_str(r#"{"fontSize":18}"#).unwrap();
+        assert_eq!(partial.font_size, 18);
+        assert!(partial.confirm_close);
+        let wild = Settings {
+            font_family: "   ".into(),
+            font_size: 200,
+            line_height: f32::NAN,
+            scrollback: 5,
+            cursor_style: "beam".into(),
+            default_view: "ports".into(),
+            ..Settings::default()
+        }
+        .normalized();
+        assert_eq!(wild.font_family, Settings::default().font_family);
+        assert_eq!(wild.font_size, 32);
+        assert_eq!(wild.line_height, 1.3);
+        assert_eq!(wild.scrollback, 500);
+        assert_eq!(wild.cursor_style, "block");
+        assert_eq!(wild.default_view, "terminal");
+        // Saved and loaded back.
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::load(dir.path().to_owned()).unwrap();
+        store.data.settings.close_to_tray = true;
+        store.save().unwrap();
+        let loaded = Store::load(dir.path().to_owned()).unwrap();
+        assert!(loaded.data.settings.close_to_tray);
+        assert_eq!(loaded.snapshot()["settings"]["closeToTray"], true);
     }
     #[test]
     fn snapshot_never_exposes_private_key() {

@@ -10,9 +10,10 @@ mod ssh;
 mod store;
 mod sync;
 mod transfer;
+mod tray;
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc};
-use store::{Host, Store};
+use store::{Host, Settings, Store};
 use tauri::{Emitter, Manager, State};
 use tokio::sync::{Mutex, Notify, Semaphore, oneshot};
 
@@ -463,6 +464,26 @@ async fn restore_backup(
     Ok(json!({"report": report, "snapshot": store.snapshot()}))
 }
 
+#[tauri::command]
+async fn save_settings(state: Shared<'_>, settings: Settings) -> Result<Value, String> {
+    let mut store = state.store.lock().await;
+    let before = store.data.settings.clone();
+    store.data.settings = settings.normalized();
+    if let Err(e) = store.save() {
+        store.data.settings = before;
+        return Err(err(e));
+    }
+    Ok(store.snapshot())
+}
+#[tauri::command]
+fn set_tray_sessions(app: tauri::AppHandle, connected: usize) -> Result<(), String> {
+    tray::set_sessions(&app, connected).map_err(err)
+}
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -470,6 +491,10 @@ fn main() {
         .setup(|app| {
             let store = Store::load(app.path().app_data_dir()?)?;
             app.manage(Arc::new(AppState::new(store)));
+            // A missing tray (some Linux desktops) must not prevent the app from starting.
+            if let Err(e) = tray::create(app.handle()) {
+                eprintln!("Không tạo được biểu tượng khay hệ thống: {e}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -502,7 +527,10 @@ fn main() {
             export_key,
             create_backup,
             inspect_backup,
-            restore_backup
+            restore_backup,
+            save_settings,
+            set_tray_sessions,
+            quit_app
         ])
         .run(tauri::generate_context!())
         .expect("Không khởi động được SSH Studio");

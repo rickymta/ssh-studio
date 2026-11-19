@@ -10,6 +10,7 @@ import { AuthPromptModal } from "./components/AuthPromptModal.jsx";
 import { KeyModal } from "./components/KeyModal.jsx";
 import { SessionPane } from "./components/SessionPane.jsx";
 import { TransferPanel } from "./components/TransferPanel.jsx";
+import { SettingsPage } from "./components/SettingsPage.jsx";
 import {
   BackupModal,
   ExportKeyModal,
@@ -40,6 +41,7 @@ import {
   Unplug,
   LayoutGrid,
   LockKeyhole,
+  Settings as SettingsIcon,
 } from "lucide-react";
 import {
   desktop,
@@ -49,6 +51,10 @@ import {
   osLabel,
   restoreSummary,
   retryRequest,
+  withDefaults,
+  shortcut,
+  cycleTab,
+  zoomFont,
 } from "./lib.js";
 import { Button, IconButton, Modal } from "./components/ui.jsx";
 
@@ -87,6 +93,12 @@ function App() {
   sessionsRef.current = sessions;
   const transfersRef = useRef(transfers);
   transfersRef.current = transfers;
+  const settings = withDefaults(data.settings);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  // Servers of recently closed sessions, newest last (Ctrl+Shift+T).
+  const closedHosts = useRef([]);
+  const searchBox = useRef();
   const notify = useCallback(
     (message, error = false) =>
       setToast({ message: cleanError(message), error }),
@@ -99,6 +111,25 @@ function App() {
       notify(e, true);
     }
   };
+  const saveSettings = async (next, quiet = false) => {
+    const previous = settingsRef.current;
+    // Applied at once (fast repeated zoom keys); the backend's normalised copy follows.
+    setData((old) => ({ ...old, settings: next }));
+    if (!desktop) return;
+    try {
+      setData(await call("save_settings", { settings: next }));
+      if (!quiet) notify("Đã lưu cài đặt.");
+    } catch (e) {
+      setData((old) => ({ ...old, settings: previous }));
+      notify(e, true);
+    }
+  };
+  // Work that closing the window or quitting would interrupt.
+  const busy = () =>
+    sessionsRef.current.some((s) =>
+      ["connected", "connecting"].includes(s.status),
+    ) ||
+    transfersRef.current.some((t) => ["queued", "running"].includes(t.status));
   useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(null), 6500);
@@ -166,14 +197,13 @@ function App() {
       .catch((e) => notify(e, true));
     getCurrentWindow()
       .onCloseRequested(async (event) => {
-        if (
-          sessionsRef.current.some((s) =>
-            ["connected", "connecting"].includes(s.status),
-          ) ||
-          transfersRef.current.some((t) =>
-            ["queued", "running"].includes(t.status),
-          )
-        ) {
+        if (settingsRef.current.closeToTray) {
+          // Sessions keep running; the tray icon shows the window again.
+          event.preventDefault();
+          await getCurrentWindow().hide();
+          return;
+        }
+        if (settingsRef.current.confirmClose && busy()) {
           event.preventDefault();
           if (
             await confirm(
@@ -185,6 +215,19 @@ function App() {
         }
       })
       .then((off) => (disposed ? off() : removers.push(off)));
+    // "Thoát SSH Studio" in the tray menu.
+    register("quit-requested", async () => {
+      if (
+        settingsRef.current.confirmClose &&
+        busy() &&
+        !(await confirm(
+          "Các phiên terminal sẽ đóng và file đang truyền sẽ bị hủy. Bạn muốn thoát?",
+          { title: "Thoát SSH Studio", kind: "warning" },
+        ))
+      )
+        return;
+      await call("quit_app");
+    });
     return () => {
       disposed = true;
       removers.forEach((off) => off());
@@ -206,7 +249,15 @@ function App() {
               ? { ...s, host, status: "connecting", error: undefined }
               : s,
           )
-        : [...old, { id, host, status: "connecting", view: "terminal" }],
+        : [
+            ...old,
+            {
+              id,
+              host,
+              status: "connecting",
+              view: settingsRef.current.defaultView,
+            },
+          ],
     );
     setActive(id);
     setPage("session");
@@ -236,6 +287,7 @@ function App() {
       return notify("Chờ kết nối hoàn tất hoặc từ chối xác nhận fingerprint.");
     if (
       item?.status === "connected" &&
+      settings.confirmClose &&
       !(await confirm(
         "Đóng phiên terminal này? Các lệnh đang chạy có thể dừng.",
         { title: "Ngắt kết nối", kind: "warning" },
@@ -244,6 +296,7 @@ function App() {
       return;
     await run(async () => {
       await call("disconnect", { id });
+      if (item) closedHosts.current.push(item.host.id);
       setSessions((old) => old.filter((s) => s.id !== id));
       if (active === id) {
         const next = sessions.find((s) => s.id !== id);
@@ -252,6 +305,56 @@ function App() {
       }
     });
   };
+  useEffect(() => {
+    if (desktop) call("set_tray_sessions", { connected }).catch(() => {});
+  }, [connected]);
+  const onShortcut = useRef();
+  onShortcut.current = (e) => {
+    if (document.querySelector(".modal-backdrop")) return;
+    const hit = shortcut(e, !!e.target.closest?.(".xterm"));
+    if (!hit) return;
+    const { action } = hit;
+    const onSession = page === "session" && current;
+    if (action === "nextTab" || action === "prevTab") {
+      const next = cycleTab(
+        sessions.map((s) => s.id),
+        onSession ? active : null,
+        action === "nextTab" ? 1 : -1,
+      );
+      if (next) selectSession(next);
+    } else if (action === "tab") {
+      if (sessions[hit.index]) selectSession(sessions[hit.index].id);
+    } else if (action === "closeSession") {
+      if (onSession) closeSession(active);
+    } else if (action === "reopen") {
+      let host;
+      while (!host && closedHosts.current.length) {
+        const id = closedHosts.current.pop();
+        host = data.hosts.find((h) => h.id === id);
+      }
+      if (host) connectHost(host);
+      else notify("Chưa có phiên nào vừa đóng để mở lại.");
+    } else if (action.startsWith("zoom")) {
+      const fontSize = zoomFont(settings.fontSize, action);
+      if (fontSize !== settings.fontSize)
+        saveSettings({ ...settings, fontSize }, true);
+    } else if (action === "findServer") {
+      setPage("hosts");
+      requestAnimationFrame(() => searchBox.current?.select());
+    } else if (action === "search") {
+      if (onSession && !["files", "ports"].includes(current.view))
+        window.dispatchEvent(
+          new CustomEvent("terminal-search", { detail: active }),
+        );
+      else return;
+    }
+    e.preventDefault();
+  };
+  useEffect(() => {
+    const handler = (e) => onShortcut.current(e);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
   const filtered = data.hosts.filter(
     (h) =>
       (group === "all" || h.group === group) &&
@@ -320,6 +423,13 @@ function App() {
           <ShieldCheck size={18} />
           Known Hosts
         </button>
+        <button
+          className={`nav-item ${page === "settings" ? "active" : ""}`}
+          onClick={() => setPage("settings")}
+        >
+          <SettingsIcon size={18} />
+          Cài đặt
+        </button>
         <div className="nav-label group-label">NHÓM SERVER</div>
         {groups.length ? (
           groups.map((g) => (
@@ -384,7 +494,9 @@ function App() {
                   ? "SSH Keys"
                   : page === "known"
                     ? "Known Hosts"
-                    : current?.host.name || "Terminal"}
+                    : page === "settings"
+                      ? "Cài đặt"
+                      : current?.host.name || "Terminal"}
             </strong>
           </div>
           <div className="topbar-right">
@@ -477,7 +589,9 @@ function App() {
                 <div className="search-box">
                   <Search size={18} />
                   <input
+                    ref={searchBox}
                     aria-label="Tìm server"
+                    title="Ctrl+K"
                     placeholder="Tìm theo tên, IP hoặc username…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
@@ -810,6 +924,9 @@ function App() {
               )}
             </section>
           )}
+          {page === "settings" && (
+            <SettingsPage settings={settings} save={saveSettings} />
+          )}
           {sessions.map((session) => (
             <SessionPane
               key={session.id}
@@ -821,6 +938,7 @@ function App() {
               showQueue={() => setShowTransfers(true)}
               reconnect={() => connectHost(session.host, session.id)}
               forwards={forwards}
+              settings={settings}
               savedHost={data.hosts.find((h) => h.id === session.host.id)}
               saveForwards={async (list) => {
                 const host = data.hosts.find((h) => h.id === session.host.id);

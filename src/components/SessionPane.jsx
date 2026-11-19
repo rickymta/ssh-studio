@@ -24,6 +24,7 @@ export function SessionPane({
   forwards,
   savedHost,
   saveForwards,
+  settings,
 }) {
   const running = Object.values(forwards || {}).filter(
     (f) => f.sessionId === session.id && f.status === "running",
@@ -106,6 +107,7 @@ export function SessionPane({
             id={session.id}
             visible={visible && !["files", "ports"].includes(session.view)}
             status={session.status}
+            settings={settings}
             notify={notify}
           />
         </div>
