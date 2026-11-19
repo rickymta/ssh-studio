@@ -82,6 +82,7 @@ export function SessionPane({
             id={session.id}
             visible={visible && session.view !== "files"}
             status={session.status}
+            notify={notify}
           />
         </div>
         {session.view !== "terminal" && (

@@ -55,17 +55,47 @@ pub struct Data {
 pub struct Store {
     pub data: Data,
     pub directory: PathBuf,
+    /// Name of the corrupt workspace file that was set aside at startup, if any.
+    pub recovered: Option<String>,
+}
+/// Key names are shown in lists and selects: 1–100 characters after trimming.
+pub fn key_name(name: &str) -> anyhow::Result<String> {
+    let name = name.trim();
+    anyhow::ensure!(
+        !name.is_empty() && name.chars().count() <= 100,
+        "Tên key phải có từ 1 đến 100 ký tự."
+    );
+    Ok(name.to_string())
 }
 impl Store {
     pub fn load(directory: PathBuf) -> anyhow::Result<Self> {
         std::fs::create_dir_all(&directory)?;
         let file = directory.join("workspace.json");
+        let mut recovered = None;
         let data = if file.exists() {
-            serde_json::from_slice(&std::fs::read(file)?)?
+            let bytes = std::fs::read(&file)?;
+            match serde_json::from_slice(&bytes) {
+                Ok(data) => data,
+                Err(_) => {
+                    // Keep the damaged file for manual recovery and start with an empty workspace.
+                    let stamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0);
+                    let name = format!("workspace.json.corrupt-{stamp}");
+                    std::fs::rename(&file, directory.join(&name))?;
+                    recovered = Some(name);
+                    Data::default()
+                }
+            }
         } else {
             Data::default()
         };
-        Ok(Self { data, directory })
+        Ok(Self {
+            data,
+            directory,
+            recovered,
+        })
     }
     pub fn save(&self) -> anyhow::Result<()> {
         let content = serde_json::to_vec_pretty(&self.data)?;
@@ -85,9 +115,12 @@ impl Store {
             key.as_object_mut().unwrap().remove("secret");
         }
         data["home"] = serde_json::json!(dirs::home_dir().unwrap_or_default().to_string_lossy());
+        data["os"] = serde_json::json!(std::env::consts::OS);
+        data["recovered"] = serde_json::json!(self.recovered);
         data
     }
     pub fn add_key(&mut self, name: String, private: &str, passphrase: &str) -> anyhow::Result<()> {
+        let name = key_name(&name)?;
         let key = decode_secret_key(
             private,
             if passphrase.is_empty() {
@@ -117,6 +150,9 @@ impl Store {
     }
 }
 fn master_key() -> anyhow::Result<Vec<u8>> {
+    // Serialize get-or-create so two first-time callers never generate different keys.
+    static CREATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = CREATE.lock().unwrap_or_else(|e| e.into_inner());
     let entry = keyring::Entry::new(credential_service(), "vault-master-key")?;
     match entry.get_password() {
         Ok(value) => {
@@ -195,5 +231,35 @@ mod tests {
             Store::load(dir.path().to_owned()).unwrap().data.keys.len(),
             1
         );
+    }
+    #[test]
+    fn corrupt_workspace_is_set_aside_instead_of_crashing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("workspace.json"), b"{ not json").unwrap();
+        let store = Store::load(dir.path().to_owned()).unwrap();
+        assert!(store.data.hosts.is_empty());
+        let name = store.recovered.clone().unwrap();
+        assert!(name.starts_with("workspace.json.corrupt-"));
+        assert_eq!(
+            std::fs::read(dir.path().join(&name)).unwrap(),
+            b"{ not json"
+        );
+        assert!(!dir.path().join("workspace.json").exists());
+        assert_eq!(store.snapshot()["recovered"], name.as_str());
+        store.save().unwrap();
+        assert!(
+            Store::load(dir.path().to_owned())
+                .unwrap()
+                .recovered
+                .is_none()
+        );
+    }
+    #[test]
+    fn key_names_are_validated() {
+        assert!(key_name("").is_err());
+        assert!(key_name("   ").is_err());
+        assert!(key_name(&"k".repeat(101)).is_err());
+        assert_eq!(key_name("  Work laptop ").unwrap(), "Work laptop");
+        assert!(key_name(&"ă".repeat(100)).is_ok());
     }
 }

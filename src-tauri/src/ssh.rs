@@ -1,4 +1,5 @@
 use crate::{AppState, store::Host};
+use base64::{Engine, engine::general_purpose::STANDARD};
 use russh::{
     ChannelMsg, client,
     keys::{HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate},
@@ -73,7 +74,7 @@ impl client::Handler for Handler {
     }
 }
 pub enum Input {
-    Data(String),
+    Data(Vec<u8>),
     Resize(u32, u32),
     Close,
 }
@@ -93,6 +94,14 @@ impl Session {
         let session = Arc::new(SftpSession::new(channel.into_stream()).await?);
         *cache = Some(session.clone());
         Ok(session)
+    }
+    /// Drops the cached SFTP channel if it is still `stale`, so the next call reopens it.
+    pub async fn reset_files(&self, stale: &Arc<SftpSession>) {
+        let mut cache = self.sftp.lock().await;
+        if cache.as_ref().is_some_and(|c| Arc::ptr_eq(c, stale)) {
+            let _ = stale.close().await;
+            *cache = None;
+        }
     }
 }
 pub async fn establish(
@@ -173,12 +182,12 @@ pub async fn establish(
         loop {
             tokio::select! {
                 input = rx.recv() => match input {
-                    Some(Input::Data(data)) => { if channel.data(data.as_bytes()).await.is_err() { break; } },
+                    Some(Input::Data(data)) => { if channel.data(&data[..]).await.is_err() { break; } },
                     Some(Input::Resize(cols,rows)) => { let _ = channel.window_change(cols,rows,0,0).await; },
                     _ => { let _ = channel.close().await; break; }
                 },
                 message = channel.wait() => match message {
-                    Some(ChannelMsg::Data { data }) | Some(ChannelMsg::ExtendedData { data, .. }) => { let _ = app.emit("terminal",json!({"id":id,"data":data.to_vec()})); },
+                    Some(ChannelMsg::Data { data }) | Some(ChannelMsg::ExtendedData { data, .. }) => { let _ = app.emit("terminal",json!({"id":id,"data":STANDARD.encode(&data[..])})); },
                     Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
                     _ => {}
                 }

@@ -16,7 +16,7 @@ export function KeyModal({ mode, close, save }) {
       subtitle={
         mode === "generate"
           ? "Tạo key Ed25519 và bảo vệ bằng kho mã hóa của hệ điều hành."
-          : "Hỗ trợ OpenSSH / PEM. Với .ppk, xuất OpenSSH bằng PuTTYgen."
+          : "Hỗ trợ OpenSSH, PEM và PuTTY .ppk (v2, v3), có hoặc không có passphrase."
       }
       close={busy ? () => {} : close}
     >
@@ -53,7 +53,7 @@ export function KeyModal({ mode, close, save }) {
                       const p = await open({
                         multiple: false,
                         directory: false,
-                        title: "Chọn private key OpenSSH / PEM",
+                        title: "Chọn private key OpenSSH / PEM / PuTTY .ppk",
                       });
                       if (p) setPath(p);
                     } catch (e) {

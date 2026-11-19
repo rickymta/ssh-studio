@@ -16,7 +16,7 @@ import {
   FolderPlus,
   ExternalLink,
 } from "lucide-react";
-import { size } from "../lib.js";
+import { size, isFolder } from "../lib.js";
 import { Button, IconButton } from "./ui.jsx";
 
 export function FilePane({
@@ -48,9 +48,7 @@ export function FilePane({
           {side === "local" ? "Máy của bạn" : "Remote server"}
         </span>
         <Button
-          disabled={
-            !selected || selected.directory || selected.link || !canTransfer
-          }
+          disabled={!selected || isFolder(selected) || !canTransfer}
           icon={side === "local" ? Upload : Download}
           onClick={transfer}
         >
@@ -148,24 +146,27 @@ export function FilePane({
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       select(file);
-                      if (file.directory || file.link) load(join(file.name));
+                      if (isFolder(file)) load(join(file.name));
                     }
                   }}
                   onDoubleClick={() => {
-                    if (file.directory || file.link) load(join(file.name));
+                    if (isFolder(file)) load(join(file.name));
                   }}
                 >
                   <td>
                     {file.directory ? (
                       <Folder size={16} className="folder-icon" />
                     ) : file.link ? (
-                      <ExternalLink size={16} />
+                      <ExternalLink
+                        size={16}
+                        className={file.targetDirectory ? "folder-icon" : ""}
+                      />
                     ) : (
                       <File size={16} />
                     )}
                     <span>{file.name}</span>
                   </td>
-                  <td>{file.directory ? "—" : size(file.size)}</td>
+                  <td>{isFolder(file) ? "—" : size(file.size)}</td>
                   <td>
                     {file.modified
                       ? new Date(file.modified).toLocaleDateString("vi-VN")

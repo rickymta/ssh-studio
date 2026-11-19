@@ -12,6 +12,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -27,6 +28,17 @@ anyhow = "1"
 
 [dev-dependencies]
 tempfile = "3"
+# Same versions ssh-key already uses for PuTTY keys; only needed to build .ppk test vectors.
+hmac = "0.13"
+sha1 = "0.11"
+sha2 = "0.11"
+argon2 = "0.6"
+
+# Argon2 is unusably slow without optimizations (PPK v3 tests, vault backups).
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

@@ -94,7 +94,7 @@ async fn import_key(
     if let Err(e) = store.add_key(name, &private, &passphrase) {
         store.data = before;
         return Err(format!(
-            "Không nhập được key: {e}. Với .ppk hãy xuất OpenSSH bằng PuTTYgen."
+            "Không nhập được key: {e}. Kiểm tra file (OpenSSH, PEM hoặc PuTTY .ppk) và passphrase."
         ));
     }
     Ok(store.snapshot())
@@ -170,6 +170,10 @@ async fn connect(
         .find(|h| h.id == host_id)
         .cloned()
         .ok_or("Server không tồn tại")?;
+    // Reconnecting reuses the tab's id; refuse while that id still has a live session.
+    if state.sessions.lock().await.contains_key(&id) {
+        return Err("Phiên này vẫn đang kết nối.".into());
+    }
     let result = ssh::establish(
         Events::desktop(app.clone()),
         state.inner().clone(),
@@ -186,9 +190,14 @@ async fn connect(
 }
 #[tauri::command]
 async fn terminal_input(state: Shared<'_>, id: String, data: String) -> Result<(), String> {
-    if data.len() > 1024 * 1024 {
+    use base64::Engine;
+    // Raw terminal bytes (UTF-8 text, or binary mouse reports from xterm's onBinary), base64.
+    if data.len() > 1400 * 1024 {
         return Err("Input quá lớn".into());
     }
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(err)?;
     let session = state
         .sessions
         .lock()
@@ -285,6 +294,7 @@ async fn cancel_transfer(state: Shared<'_>, id: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let store = Store::load(app.path().app_data_dir()?)?;
             app.manage(Arc::new(AppState::new(store)));

@@ -3,7 +3,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import { FilePane } from "./FilePane.jsx";
 import { NameModal } from "./NameModal.jsx";
 import { FolderOpen } from "lucide-react";
-import { call, uid, cleanError } from "../lib.js";
+import { call, uid, cleanError, isFolder } from "../lib.js";
 
 export function FileManager({ session, home, notify, transfers, showQueue }) {
   const [local, setLocal] = useState({ path: home, parent: home, files: [] });
@@ -72,7 +72,7 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
   };
   const transfer = async (side) => {
     const entry = selected[side];
-    if (!entry || entry.directory || entry.link)
+    if (!entry || isFolder(entry))
       return notify(
         "Chọn một file thường để truyền. Với thư mục, hãy nén trước.",
         true,

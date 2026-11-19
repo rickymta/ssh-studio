@@ -2,14 +2,34 @@ import React, { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Terminal as XTerminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { desktop, call } from "../lib.js";
+import {
+  desktop,
+  call,
+  toBase64,
+  fromBase64,
+  textBytes,
+  binaryBytes,
+  clipboardChord,
+  readClipboard,
+  writeClipboard,
+  cleanError,
+} from "../lib.js";
 
-export function TerminalView({ id, visible, status }) {
+export function TerminalView({
+  id,
+  visible,
+  status,
+  copyOnSelect = false,
+  notify = () => {},
+}) {
   const container = useRef();
   const term = useRef();
   const fit = useRef();
   const statusRef = useRef(status);
   statusRef.current = status;
+  const options = useRef({ copyOnSelect, notify });
+  options.current = { copyOnSelect, notify };
+  const previous = useRef(status);
   useEffect(() => {
     let disposed = false;
     let off;
@@ -44,35 +64,85 @@ export function TerminalView({ id, visible, status }) {
     );
     if (desktop)
       listen("terminal", ({ payload }) => {
-        if (payload.id === id) terminal.write(new Uint8Array(payload.data));
+        if (payload.id === id) terminal.write(fromBase64(payload.data));
       }).then((fn) => {
         if (disposed) fn();
         else off = fn;
       });
-    const input = terminal.onData((data) => {
+    const send = (bytes) => {
       if (statusRef.current === "connected")
-        call("terminal_input", { id, data }).catch(() => {});
+        call("terminal_input", { id, data: toBase64(bytes) }).catch(() => {});
+    };
+    const copy = () => {
+      const text = terminal.getSelection();
+      if (text)
+        writeClipboard(text).catch((e) => options.current.notify(e, true));
+    };
+    const paste = () =>
+      readClipboard()
+        .then((text) => text && terminal.paste(text))
+        .catch((e) =>
+          options.current.notify(
+            `Không đọc được clipboard: ${cleanError(e)}`,
+            true,
+          ),
+        );
+    terminal.attachCustomKeyEventHandler((e) => {
+      const chord = clipboardChord(e);
+      if (!chord) return true;
+      e.preventDefault();
+      if (chord === "copy") copy();
+      else paste();
+      return false;
     });
+    const input = terminal.onData((data) => send(textBytes(data)));
+    const binary = terminal.onBinary((data) => send(binaryBytes(data)));
+    const selection = terminal.onSelectionChange(() => {
+      if (options.current.copyOnSelect && terminal.hasSelection()) copy();
+    });
+    const contextMenu = (e) => {
+      e.preventDefault();
+      if (terminal.hasSelection()) {
+        copy();
+        terminal.clearSelection();
+      } else paste();
+    };
+    container.current.addEventListener("contextmenu", contextMenu);
     const resize = terminal.onResize(({ cols, rows }) => {
       if (statusRef.current === "connected")
         call("terminal_resize", { id, cols, rows }).catch(() => {});
     });
+    const element = container.current;
     const observer = new ResizeObserver(() => {
-      if (container.current?.offsetWidth)
+      if (element?.offsetWidth)
         try {
           addon.fit();
         } catch {}
     });
-    observer.observe(container.current);
+    observer.observe(element);
     return () => {
       disposed = true;
       off?.();
       observer.disconnect();
+      element.removeEventListener("contextmenu", contextMenu);
       input.dispose();
+      binary.dispose();
+      selection.dispose();
       resize.dispose();
       terminal.dispose();
     };
   }, [id]);
+  useEffect(() => {
+    // Reconnecting keeps the same tab and scrollback; mark where the new session starts.
+    if (
+      status === "connecting" &&
+      ["closed", "error"].includes(previous.current)
+    )
+      term.current?.writeln(
+        "\r\n\x1b[38;2;112;217;190m── Đang kết nối lại…\x1b[0m\r\n",
+      );
+    previous.current = status;
+  }, [status]);
   useEffect(() => {
     if (visible && term.current) {
       requestAnimationFrame(() => {

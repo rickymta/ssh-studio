@@ -34,7 +34,15 @@ import {
   LayoutGrid,
   LockKeyhole,
 } from "lucide-react";
-import { desktop, call, uid, cleanError, size, statuses } from "./lib.js";
+import {
+  desktop,
+  call,
+  uid,
+  cleanError,
+  size,
+  statuses,
+  osLabel,
+} from "./lib.js";
 import { Button, IconButton, Modal } from "./components/ui.jsx";
 
 import "@xterm/xterm/css/xterm.css";
@@ -58,6 +66,7 @@ function App() {
   const [showTransfers, setShowTransfers] = useState(false);
   const [verification, setVerification] = useState([]);
   const [ready, setReady] = useState(false);
+  const [recoveredSeen, setRecoveredSeen] = useState(false);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   const transfersRef = useRef(transfers);
@@ -147,12 +156,18 @@ function App() {
     setActive(id);
     setPage("session");
   };
-  const begin = async (host, password = "") => {
-    const id = uid();
-    setSessions((old) => [
-      ...old,
-      { id, host, status: "connecting", view: "terminal" },
-    ]);
+  const begin = async (host, password = "", reuseId = null) => {
+    const id = reuseId || uid();
+    // Reconnect keeps the existing tab (and its terminal scrollback) instead of opening a new one.
+    setSessions((old) =>
+      reuseId && old.some((s) => s.id === reuseId)
+        ? old.map((s) =>
+            s.id === reuseId
+              ? { ...s, host, status: "connecting", error: undefined }
+              : s,
+          )
+        : [...old, { id, host, status: "connecting", view: "terminal" }],
+    );
     setActive(id);
     setPage("session");
     setModal(null);
@@ -168,10 +183,12 @@ function App() {
       notify(e, true);
     }
   };
-  const connectHost = (host) => {
+  const connectHost = (host, reuseId = null) => {
     if (!ready) return notify("Backend chưa sẵn sàng.", true);
-    if (host.auth === "password") setModal({ type: "password", host });
-    else begin(host);
+    // Use the latest saved settings of the server when reconnecting.
+    host = data.hosts.find((h) => h.id === host.id) || host;
+    if (host.auth === "password") setModal({ type: "password", host, reuseId });
+    else begin(host, "", reuseId);
   };
   const closeSession = async (id) => {
     const item = sessions.find((s) => s.id === id);
@@ -203,6 +220,10 @@ function App() {
         .includes(search.toLowerCase()),
   );
   const groups = [...new Set(data.hosts.map((h) => h.group))];
+  // A group filter whose last server was deleted or moved falls back to "all".
+  useEffect(() => {
+    if (group !== "all" && !groups.includes(group)) setGroup("all");
+  }, [data.hosts, group]);
   const onDeleteHost = (host) =>
     run(async () => {
       if (
@@ -332,7 +353,7 @@ function App() {
               {connected} kết nối
             </span>
             <span className="os-label">
-              <Monitor size={14} /> Windows
+              <Monitor size={14} /> {osLabel(data.os)}
             </span>
           </div>
         </header>
@@ -397,6 +418,19 @@ function App() {
                 <div className="notice">
                   Bạn đang xem giao diện web. Chạy <code>npm start</code> để kết
                   nối SSH qua ứng dụng Tauri.
+                </div>
+              )}
+              {data.recovered && !recoveredSeen && (
+                <div className="notice error">
+                  <span>
+                    File cấu hình bị hỏng nên SSH Studio đã khởi động với
+                    workspace trống. Bản cũ được giữ lại tại{" "}
+                    <code>{data.recovered}</code> trong thư mục dữ liệu ứng dụng
+                    để khôi phục thủ công.
+                  </span>
+                  <Button onClick={() => setRecoveredSeen(true)}>
+                    Đã hiểu
+                  </Button>
                 </div>
               )}
               <div className="toolbar">
@@ -650,8 +684,8 @@ function App() {
                   <KeyRound size={44} />
                   <h2>Chìa khóa cho những kết nối của bạn</h2>
                   <p>
-                    Nhập private key OpenSSH / PEM đang dùng hoặc tạo key
-                    Ed25519 mới.
+                    Nhập private key OpenSSH / PEM / PuTTY .ppk đang dùng hoặc
+                    tạo key Ed25519 mới.
                   </p>
                   <Button
                     icon={Upload}
@@ -723,7 +757,7 @@ function App() {
               notify={notify}
               transfers={transfers}
               showQueue={() => setShowTransfers(true)}
-              reconnect={() => connectHost(session.host)}
+              reconnect={() => connectHost(session.host, session.id)}
               setView={(view) =>
                 setSessions((old) =>
                   old.map((s) => (s.id === session.id ? { ...s, view } : s)),
@@ -849,7 +883,7 @@ function App() {
         <PasswordModal
           host={modal.host}
           close={() => setModal(null)}
-          connect={(password) => begin(modal.host, password)}
+          connect={(password) => begin(modal.host, password, modal.reuseId)}
         />
       )}
       {modal?.type === "key" && (
