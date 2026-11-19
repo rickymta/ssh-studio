@@ -26,39 +26,61 @@ npm start
 
 ## Tính năng
 
-- Thêm, sửa, xóa server; tìm theo tên/IP/username; phân nhóm theo môi trường hoặc dự án.
-- Mở nhiều phiên SSH cùng lúc, kể cả nhiều phiên tới cùng server. Mỗi terminal giữ trạng thái khi chuyển tab.
-- Xác thực bằng password hoặc private key. Password được hỏi mỗi lần kết nối, không lưu xuống ổ đĩa.
-- Terminal tương tác có PTY, màu ANSI, resize và scrollback 10.000 dòng.
-- Chế độ Terminal, Files hoặc chia đôi terminal/file manager.
-- Hai khung file local/remote: duyệt đường dẫn, mở thư mục, tạo thư mục, đổi tên, xóa file hoặc thư mục rỗng.
-- Upload/download file qua SFTP, tiến độ, hàng đợi tối đa hai file đồng thời, hủy tác vụ. Ghi vào file `.part` trước khi công bố file đích.
-- Nhập private key OpenSSH/PEM có hoặc không có passphrase; tạo key Ed25519; sao chép public key; dùng chung key cho nhiều server. Chặn xóa key đang được cấu hình server sử dụng.
-- Xác nhận SHA256 fingerprint lần đầu; lưu Known Hosts; chặn khi host key thay đổi.
+**Server & kết nối**
+- Thêm, sửa, xóa server; tìm theo tên/IP/username (Ctrl+K); phân nhóm theo môi trường hoặc dự án.
+- Xác thực bằng password, private key, SSH agent (Windows OpenSSH agent / Pageant, `SSH_AUTH_SOCK` trên Unix) hoặc keyboard-interactive / MFA (OTP), kể cả chuỗi nhiều bước (key rồi OTP). Password và OTP được hỏi khi kết nối, không lưu xuống ổ đĩa.
+- Jump host (ProxyJump, cho phép chuỗi nhiều bước, chặn vòng lặp) và proxy SOCKS5 / HTTP CONNECT. Mật khẩu proxy nằm trong vault mã hóa.
+- Port forwarding Local (-L), Remote (-R) và Dynamic SOCKS5 (-D) trong tab **Ports** của phiên; forward đã lưu tự bật khi kết nối.
+
+**Terminal**
+- Nhiều phiên SSH cùng lúc, kể cả nhiều phiên tới cùng server; kết nối lại giữ nguyên tab và scrollback.
+- PTY `xterm-256color`, màu ANSI, resize, mouse report; Ctrl+Shift+C/V, Ctrl/Shift+Insert và chuột phải để sao chép / dán, tùy chọn copy-on-select.
+- Tìm trong terminal (Ctrl+Shift+F) có tô sáng kết quả, phân biệt hoa thường, regex.
+- Phím tắt: Ctrl+Tab, Ctrl+1..9, Ctrl+Shift+W, Ctrl+Shift+T (mở lại server vừa đóng), Ctrl+= / Ctrl+- / Ctrl+0. Không chiếm Ctrl+C/V/W của shell.
+
+**File (SFTP)**
+- Hai khung local/remote, chế độ Terminal / Files / chia đôi. Chọn nhiều mục (Ctrl/Shift-click, Ctrl+A), kéo thả giữa hai khung và từ Explorer vào khung remote.
+- Upload/download file và thư mục đệ quy, tiến độ gộp, hàng đợi hai tác vụ song song, hủy, thử lại / tiếp tục từ chỗ dừng (resume), giữ thời gian sửa đổi.
+- Trùng tên thì hỏi: Ghi đè / Giữ cả hai / Bỏ qua / Hủy, có "áp dụng cho tất cả". Không bao giờ tự ghi đè.
+- Sửa file text remote (≤ 5 MB, UTF-8) với số dòng, Ctrl+S, giữ kiểu xuống dòng và quyền file, báo xung đột khi file bị đổi trên server.
+- Xóa thư mục không rỗng (xác nhận số mục), đổi quyền (chmod), mở symlink tới thư mục.
+- Đồng bộ thư mục: so sánh local ↔ remote, xem trước, chọn chiều và từng mục; chế độ mirror (xóa phía đích) phải xác nhận riêng.
+
+**SSH key & dữ liệu**
+- Nhập private key OpenSSH / PEM / PuTTY `.ppk` (v2, v3, có hoặc không passphrase); tạo key Ed25519; sao chép public key; dùng chung key cho nhiều server.
+- Xuất private key ra file OpenSSH, tùy chọn passphrase.
+- Sao lưu toàn bộ workspace (server, key, mật khẩu proxy, known hosts) vào file `.sshstudio-backup` mã hóa bằng mật khẩu riêng; khôi phục có xem trước và gộp không phá dữ liệu.
+- Xác nhận SHA256 fingerprint lần đầu; Known Hosts; chặn khi host key thay đổi.
+
+**Ứng dụng**
+- Trang **Cài đặt**: font, cỡ chữ, giãn dòng, scrollback, con trỏ, chế độ xem mặc định, xác nhận khi đóng, thu về khay.
+- Biểu tượng khay hệ thống: hiện cửa sổ, số phiên đang kết nối, thoát; tùy chọn chạy nền khi đóng cửa sổ.
+- `workspace.json` hỏng không làm app dừng: file được giữ lại để khôi phục, app mở với workspace trống.
 
 ## Sử dụng
 
 1. Nếu dùng key: vào **SSH Keys**, nhập private key hoặc tạo mới. Với key tạo mới, sao chép public key và thêm vào `~/.ssh/authorized_keys` trên server qua kênh quản trị tin cậy.
-2. Chọn **Thêm server**, điền hostname/IP, port, username và phương thức xác thực.
-3. Chọn **Kết nối**. Đối chiếu fingerprint với console server hoặc quản trị viên trước khi tin cậy.
-4. Mở thêm kết nối từ danh sách Servers; chuyển qua lại giữa các tab.
-5. Trong **Files**, chọn thư mục đích ở cả hai khung, chọn file rồi **Upload** hoặc **Download**.
+2. Chọn **Thêm server**, điền hostname/IP, port, username và phương thức xác thực. Ở **Kết nối qua**, chọn Trực tiếp, một jump host đã lưu, hoặc proxy.
+3. Chọn **Kết nối**. Đối chiếu fingerprint với console server hoặc quản trị viên trước khi tin cậy. Password / OTP được hỏi trong hộp thoại.
+4. Mở thêm kết nối từ danh sách Servers; chuyển tab bằng chuột hoặc Ctrl+Tab / Ctrl+1..9.
+5. Trong **Files**, chọn thư mục ở cả hai khung, chọn file / thư mục rồi **Upload** / **Download**, hoặc kéo thả. Nhấp đúp file text remote để sửa; **Đồng bộ** để so sánh hai thư mục.
+6. Trong **Ports**, thêm forward; đánh dấu "Lưu vào server" để tự bật ở lần kết nối sau.
+7. Ở **SSH Keys**, **Sao lưu** tạo file backup có mật khẩu; **Khôi phục** gộp backup vào máy khác.
 
 ## Dữ liệu và bảo vệ key
 
-Tauri lưu `workspace.json` trong thư mục AppData của `dev.sshstudio.desktop` (Windows thường là `%APPDATA%\dev.sshstudio.desktop`). Metadata server và public key không phải bí mật. Private key được mã hóa bằng AES-256-GCM với nonce ngẫu nhiên; master key được lưu trong Windows Credential Manager, service `dev.sshstudio.desktop`, entry `vault-master-key`. Private key không được trả về frontend.
+Tauri lưu `workspace.json` trong thư mục AppData của `dev.sshstudio.desktop` (Windows thường là `%APPDATA%\dev.sshstudio.desktop`). Metadata server, public key và cài đặt không phải bí mật. Private key và mật khẩu proxy được mã hóa bằng AES-256-GCM với nonce ngẫu nhiên; master key được lưu trong Windows Credential Manager, service `dev.sshstudio.desktop`, entry `vault-master-key`. Private key và mật khẩu proxy không được trả về frontend, không xuất hiện trong event hay log.
 
-Key có passphrase được mở khóa lúc nhập, sau đó bản private key trong vault được bảo vệ bởi mã hóa của ứng dụng. Việc sao chép riêng `workspace.json` sang máy khác không chuyển được khả năng giải mã private key. Giữ bản gốc key an toàn trước khi nhập. Không có đồng bộ cloud hoặc telemetry.
+Key có passphrase được mở khóa lúc nhập, sau đó bản private key trong vault được bảo vệ bởi mã hóa của ứng dụng. Sao chép riêng `workspace.json` sang máy khác không chuyển được khả năng giải mã. Để chuyển máy, dùng **Sao lưu / Khôi phục**: file backup được mã hóa AES-256-GCM bằng khóa dẫn xuất từ mật khẩu của bạn (Argon2id), không phụ thuộc Credential Manager. Quên mật khẩu backup thì không mở được file. Private key chỉ rời vault khi bạn chủ động xuất hoặc sao lưu. Không có đồng bộ cloud hoặc telemetry.
 
-## Giới hạn bản 0.1
+## Giới hạn
 
-- Truyền từng file; chưa truyền thư mục đệ quy, kéo thả hoặc resume. Nén thư mục trước khi truyền.
-- Không tự ghi đè file đích. Nếu tên đã tồn tại, đổi tên hoặc xóa file đích bằng thao tác riêng.
-- Chưa có SSH agent, jump host, proxy, port forwarding hoặc xác thực keyboard-interactive/MFA.
-- `.ppk` cần xuất sang OpenSSH bằng PuTTYgen trước khi nhập.
-- Chưa có export private key hoặc backup vault có mật khẩu độc lập.
-- Chưa có chỉnh sửa nội dung file remote hoặc đồng bộ thư mục.
-- Bản build chưa ký số. Windows là nền tảng đã nhắm đến; chưa xác minh macOS/Linux.
+- Bản build chưa ký số. Cấu hình ký đã chuẩn bị sẵn (`npm run dist:signed`), cần chứng chỉ của chủ dự án — xem [docs/RELEASE.md](docs/RELEASE.md).
+- Windows là nền tảng đã kiểm tra. Code giữ đa nền tảng (Keychain / Secret Service, agent qua `SSH_AUTH_SOCK`), nhưng chưa build và chạy thử trên macOS/Linux.
+- SFTP v3 không có rename ghi đè: ghi đè file remote đổi tên file cũ sang `.<tên>.sshstudio-old-…` rồi đưa file mới vào. Nếu mất kết nối đúng lúc đó, file cũ còn lại dưới tên tạm này.
+- Đồng bộ so sánh theo kích thước và thời gian sửa đổi (sai lệch ≤ 2 giây coi là bằng nhau), không so nội dung; symlink được bỏ qua.
+- Trình sửa file không tô màu cú pháp; chỉ mở file UTF-8 tối đa 5 MB.
+- Dynamic forward là SOCKS5 không xác thực, chỉ lệnh CONNECT. Link trong terminal chưa bấm được.
 
 ## Kiểm tra và build
 
@@ -72,18 +94,23 @@ npm run dist
 - `npm test`: Rust unit tests và server SSH/SFTP loopback tự tạo, không sử dụng server hay credential thật.
 - `npm run pack`: executable release tại `src-tauri/target/release/ssh-studio.exe`.
 - `npm run dist`: thêm NSIS installer tại `src-tauri/target/release/bundle/nsis/`.
+- `npm run dist:signed`: như `dist` nhưng ký số executable và installer (cần chứng chỉ, xem [docs/RELEASE.md](docs/RELEASE.md)).
 
-Các test kiểm tra mã hóa và phát hiện sửa đổi vault, không lộ private key trong snapshot, tên file, phiên SSH độc lập, truyền file hai chiều, tránh ghi đè, sai password và host key thay đổi.
+Test chạy trên server SSH/SFTP giả lập trong tiến trình, dùng thư mục tạm thật làm ổ đĩa remote: vault và backup (sai mật khẩu, file bị sửa), không lộ secret trong snapshot, nhập PPK, truyền thư mục, xung đột ghi đè / bỏ qua / giữ cả hai, resume sau khi ngắt, sửa file và phát hiện xung đột, đồng bộ, MFA nhiều bước, keyboard-interactive, SSH agent, jump host, proxy SOCKS5 / HTTP, port forwarding -L / -R / -D, host key thay đổi. Phần giao diện có test vitest cho các hàm thuần (chọn nhiều, kế hoạch xung đột, đồng bộ, phím tắt…).
 
 ## Cấu trúc
 
-- `src/main.jsx`: workspace, forms, terminal, SFTP panels và transfer queue.
+- `src/main.jsx`: khung ứng dụng, trang Servers / SSH Keys / Known Hosts, sự kiện backend, phím tắt.
+- `src/components/`: terminal, file manager, transfer, editor, đồng bộ, port forwarding, sao lưu, cài đặt và các hộp thoại.
+- `src/lib.js`: hàm thuần dùng chung (có test trong `src/lib.test.js`).
 - `src/style.css`: giao diện desktop tối.
 - `src-tauri/src/main.rs`: Tauri commands và state dùng chung.
-- `src-tauri/src/ssh.rs`: host verification, authentication, session/channel lifecycle.
-- `src-tauri/src/files.rs`: local filesystem, SFTP và transfers.
-- `src-tauri/src/store.rs`: metadata, vault mã hóa và OS credential store.
-- `src-tauri/src/integration.rs`: server fixture và integration test.
+- `src-tauri/src/ssh.rs`: host verification, xác thực (password, key, agent, keyboard-interactive), jump host, vòng đời phiên.
+- `src-tauri/src/proxy.rs`, `forward.rs`: proxy SOCKS5 / HTTP và port forwarding.
+- `src-tauri/src/files.rs`, `transfer.rs`, `edit.rs`, `sync.rs`: SFTP, hàng đợi truyền, sửa file, đồng bộ.
+- `src-tauri/src/store.rs`, `backup.rs`: metadata, cài đặt, vault mã hóa, xuất key và sao lưu.
+- `src-tauri/src/tray.rs`: khay hệ thống.
+- `src-tauri/src/integration/`: server fixture và integration test.
 
 Backend dùng [russh](https://github.com/warp-tech/russh), [russh-sftp](https://docs.rs/russh-sftp/latest/russh_sftp/) và [keyring](https://docs.rs/keyring/latest/keyring/). Quyền frontend được khai báo trong `src-tauri/capabilities/default.json`; CSP giới hạn kết nối của webview vào IPC Tauri.
 
@@ -96,7 +123,7 @@ Icon chính kết hợp thư mục và dấu lệnh `>_`, nền xanh đậm và 
 | Ứng dụng | [logo.svg](assets/logo.svg) | [PNG 1024 px](assets/exports/app/1024x1024.png), [Windows ICO](src-tauri/icons/icon.ico) |
 | Status bar | [statusbar.svg](assets/statusbar.svg) | [PNG 16–48 px](assets/exports/statusbar/) |
 
-Icon đã được tích hợp vào sidebar, status bar và bộ icon đóng gói của Tauri. Xem [hướng dẫn tái tạo icon](assets/ICONS.md). Chưa triển khai menu system tray hoặc chế độ chạy nền.
+Icon đã được tích hợp vào sidebar, status bar, khay hệ thống và bộ icon đóng gói của Tauri. Xem [hướng dẫn tái tạo icon](assets/ICONS.md).
 
 ## Đóng góp
 

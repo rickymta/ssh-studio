@@ -19,7 +19,8 @@
     "test:ui": "vitest run",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "pack": "tauri build --no-bundle",
-    "dist": "tauri build"
+    "dist": "tauri build",
+    "dist:signed": "tauri build --config src-tauri/tauri.signing.conf.json"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
