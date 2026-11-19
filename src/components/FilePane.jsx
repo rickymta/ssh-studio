@@ -15,8 +15,10 @@ import {
   LoaderCircle,
   FolderPlus,
   ExternalLink,
+  FilePenLine,
+  LockKeyhole,
 } from "lucide-react";
-import { size, isFolder, nextSelection } from "../lib.js";
+import { size, isFolder, nextSelection, modeString } from "../lib.js";
 import { Button, IconButton } from "./ui.jsx";
 
 export function FilePane({
@@ -34,12 +36,16 @@ export function FilePane({
   create,
   rename,
   remove,
+  edit,
+  chmod,
   transfer,
   canTransfer,
 }) {
   const [address, setAddress] = useState(listing.path);
   useEffect(() => setAddress(listing.path), [listing.path]);
   const chosen = selection.selection;
+  const single =
+    chosen.length === 1 ? listing.files.find((f) => f.name === chosen[0]) : null;
   const names = listing.files.map((f) => f.name);
   const pick = (file, e = {}) =>
     select(
@@ -127,10 +133,26 @@ export function FilePane({
         />
         <IconButton
           icon={Trash2}
-          title="Xóa"
+          title="Xóa (cả thư mục con)"
           disabled={disabled || !chosen.length}
           onClick={remove}
         />
+        {edit && (
+          <IconButton
+            icon={FilePenLine}
+            title="Sửa file văn bản"
+            disabled={disabled || !single || isFolder(single)}
+            onClick={() => edit(single)}
+          />
+        )}
+        {chmod && (
+          <IconButton
+            icon={LockKeyhole}
+            title="Đổi quyền (chmod)"
+            disabled={disabled || !single || single.link}
+            onClick={() => chmod(single)}
+          />
+        )}
         <span>
           {chosen.length > 1 && `${chosen.length} đã chọn · `}
           {listing.files.length} mục
@@ -190,8 +212,14 @@ export function FilePane({
                       pick(file, { ctrlKey: true });
                     }
                   }}
+                  title={
+                    side === "remote" && file.mode
+                      ? `${file.name} · ${modeString(file.mode)}`
+                      : file.name
+                  }
                   onDoubleClick={() => {
                     if (isFolder(file)) load(join(file.name));
+                    else if (edit) edit(file);
                   }}
                 >
                   <td>

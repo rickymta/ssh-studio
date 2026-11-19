@@ -3,11 +3,14 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import { FilePane } from "./FilePane.jsx";
 import { NameModal } from "./NameModal.jsx";
 import { ConflictModal } from "./ConflictModal.jsx";
+import { EditorModal } from "./EditorModal.jsx";
+import { ChmodModal } from "./ChmodModal.jsx";
 import { FolderOpen } from "lucide-react";
 import {
   call,
   uid,
   cleanError,
+  deleteSummary,
   desktop,
   planConflicts,
   splitPath,
@@ -26,6 +29,8 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
   const [errors, setErrors] = useState({});
   const [dialog, setDialog] = useState(null);
   const [conflict, setConflict] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [chmodEntry, setChmodEntry] = useState(null);
   const [drag, setDrag] = useState(null);
   const [dropHover, setDropHover] = useState(false);
   const root = useRef(null);
@@ -98,33 +103,55 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
     }
   };
   const remove = async (side) => {
-    const list = entries(side);
-    if (!list.length) return;
-    const label =
-      list.length === 1 ? `“${list[0].name}”` : `${list.length} mục đã chọn`;
-    if (
-      !(await confirm(
-        `Xóa ${label}? Thư mục phải rỗng. Không thể hoàn tác.`,
-        { title: "Xóa file", kind: "warning" },
-      ))
-    )
-      return;
-    for (const entry of list) {
-      try {
-        await call("file_action", {
-          sessionId: side === "remote" ? session.id : null,
-          directory: paths.current[side],
-          name: entry.name,
-          newName: null,
-          action: "delete",
-          isDirectory: entry.directory || false,
-        });
-      } catch (e) {
-        notify(`${entry.name}: ${cleanError(e)}`, true);
-        break;
-      }
+    const names = entries(side).map((f) => f.name);
+    if (!names.length) return;
+    const request = {
+      sessionId: side === "remote" ? session.id : null,
+      directory: paths.current[side],
+      names,
+    };
+    try {
+      const counted = await call("delete_entries", {
+        ...request,
+        countOnly: true,
+      });
+      const label =
+        names.length === 1 ? `“${names[0]}”` : `${names.length} mục đã chọn`;
+      const detail = counted.folders
+        ? ` (gồm ${deleteSummary(counted)})`
+        : "";
+      if (
+        !(await confirm(
+          `Xóa vĩnh viễn ${label}${detail}? Không thể hoàn tác.`,
+          { title: "Xóa", kind: "warning" },
+        ))
+      )
+        return;
+      const deleted = await call("delete_entries", {
+        ...request,
+        countOnly: false,
+      });
+      notify(`Đã xóa ${deleteSummary(deleted)}.`);
+    } catch (e) {
+      notify(e, true);
     }
     await load(side, paths.current[side]);
+  };
+  const remotePath = (name) =>
+    paths.current.remote.replace(/\/$/, "") + "/" + name;
+  const applyChmod = async (mode) => {
+    try {
+      await call("chmod", {
+        sessionId: session.id,
+        directory: paths.current.remote,
+        name: chmodEntry.name,
+        mode,
+      });
+      setChmodEntry(null);
+      await load("remote", paths.current.remote);
+    } catch (e) {
+      notify(e, true);
+    }
   };
 
   /** Transfers `items` ({directory, name}) to `toDirectory` on the other side. */
@@ -335,6 +362,12 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
                 })
               }
               remove={() => remove(side)}
+              edit={
+                side === "remote"
+                  ? (file) => setEditing(remotePath(file.name))
+                  : undefined
+              }
+              chmod={side === "remote" ? setChmodEntry : undefined}
               transfer={() => transferSelection(side)}
               canTransfer={connected && !errors.remote && !errors.local}
             />
@@ -358,6 +391,25 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
         />
       )}
       {conflict && <ConflictModal {...conflict} />}
+      {editing && (
+        <EditorModal
+          session={session}
+          path={editing}
+          notify={notify}
+          close={() => {
+            setEditing(null);
+            load("remote", paths.current.remote);
+          }}
+        />
+      )}
+      {chmodEntry && (
+        <ChmodModal
+          name={chmodEntry.name}
+          mode={chmodEntry.mode || 0o644}
+          close={() => setChmodEntry(null)}
+          save={applyChmod}
+        />
+      )}
     </div>
   );
 }

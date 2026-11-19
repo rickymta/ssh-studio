@@ -16,13 +16,23 @@ export function IconButton({ icon: Icon, title, ...props }) {
     </button>
   );
 }
-export function Modal({ title, subtitle, children, close, wide = false }) {
+export function Modal({
+  title,
+  subtitle,
+  children,
+  close,
+  wide = false,
+  className = "",
+}) {
   const ref = useRef();
+  // Escape always calls the latest `close` (editors confirm unsaved changes).
+  const closeRef = useRef(close);
+  closeRef.current = close;
   useEffect(() => {
     const prior = document.activeElement;
     ref.current?.focus();
     const handler = (e) => {
-      if (e.key === "Escape") close();
+      if (e.key === "Escape") closeRef.current();
       if (e.key === "Tab") {
         const list = ref.current?.querySelectorAll(
           'button:not(:disabled),input,select,textarea,[tabindex="0"]',
@@ -54,7 +64,7 @@ export function Modal({ title, subtitle, children, close, wide = false }) {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`modal ${wide ? "wide" : ""}`}
+        className={`modal ${wide ? "wide" : ""} ${className}`}
       >
         <div className="modal-heading">
           <div>

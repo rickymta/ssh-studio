@@ -129,6 +129,36 @@ export function retryRequest(t) {
   };
 }
 
+/**
+ * Line endings of a file opened in the editor. A <textarea> normalises CRLF to LF, so the
+ * original style is restored on save (F2).
+ */
+export const lineEnding = (text) => (/\r\n/.test(text) ? "\r\n" : "\n");
+export const withLineEnding = (text, eol) =>
+  eol === "\r\n" ? text.replace(/\r?\n/g, "\r\n") : text;
+
+/** "755" / "0644" → number, or null when not a valid octal permission. */
+export function parseMode(text) {
+  const value = String(text).trim();
+  return /^[0-7]{3,4}$/.test(value) ? parseInt(value, 8) : null;
+}
+/** Permission bits → "rwxr-xr-x". */
+export function modeString(mode) {
+  return [6, 3, 0]
+    .map((shift) => {
+      const bits = (mode >> shift) & 7;
+      return (bits & 4 ? "r" : "-") + (bits & 2 ? "w" : "-") + (bits & 1 ? "x" : "-");
+    })
+    .join("");
+}
+/** "3 thư mục và 12 file" — confirmation text for a recursive delete. */
+export function deleteSummary({ files, folders }) {
+  const parts = [];
+  if (folders) parts.push(`${folders} thư mục`);
+  if (files) parts.push(`${files} file`);
+  return parts.join(" và ") || "0 mục";
+}
+
 /** Human label for the backend's `std::env::consts::OS`. */
 export function osLabel(os) {
   return (

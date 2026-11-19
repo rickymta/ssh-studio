@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   binaryBytes,
   clipboardChord,
+  deleteSummary,
   fromBase64,
   isFolder,
+  lineEnding,
+  modeString,
+  parseMode,
+  withLineEnding,
   nextSelection,
   osLabel,
   planConflicts,
@@ -140,6 +145,31 @@ describe("conflict planning (F1)", () => {
       retryRequest({ ...row, status: "failed", resumable: true }),
     ).toMatchObject({ resume: true, targetName: "a (1)", conflict: "rename" });
     expect(retryRequest({ ...row, status: "cancelled" }).resume).toBe(false);
+  });
+});
+
+describe("remote editing (F2)", () => {
+  it("restores CRLF line endings after the textarea normalises them", () => {
+    const original = "a\r\nb\r\n";
+    const eol = lineEnding(original);
+    expect(eol).toBe("\r\n");
+    expect(withLineEnding("a\nb\nc\n", eol)).toBe("a\r\nb\r\nc\r\n");
+    expect(lineEnding("a\nb")).toBe("\n");
+    expect(withLineEnding("a\nb", "\n")).toBe("a\nb");
+  });
+  it("parses and prints permissions", () => {
+    expect(parseMode("755")).toBe(0o755);
+    expect(parseMode("0640")).toBe(0o640);
+    expect(parseMode("789")).toBe(null);
+    expect(parseMode("rwx")).toBe(null);
+    expect(modeString(0o100755)).toBe("rwxr-xr-x");
+    expect(modeString(0o640)).toBe("rw-r-----");
+  });
+  it("summarises a recursive delete", () => {
+    expect(deleteSummary({ files: 12, folders: 3 })).toBe(
+      "3 thư mục và 12 file",
+    );
+    expect(deleteSummary({ files: 1, folders: 0 })).toBe("1 file");
   });
 });
 

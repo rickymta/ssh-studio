@@ -75,7 +75,7 @@ pub enum Fs {
     Remote(Arc<SftpSession>),
 }
 
-fn not_found(error: &SftpError) -> bool {
+pub(crate) fn not_found(error: &SftpError) -> bool {
     matches!(error, SftpError::Status(s) if s.status_code == StatusCode::NoSuchFile)
 }
 fn local_meta(meta: &std::fs::Metadata) -> Meta {

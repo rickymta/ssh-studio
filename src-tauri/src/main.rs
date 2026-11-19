@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod edit;
 mod files;
 #[cfg(test)]
 mod integration;
@@ -294,6 +295,52 @@ async fn cancel_transfer(state: Shared<'_>, id: String) -> Result<(), String> {
     }
     Ok(())
 }
+#[tauri::command]
+async fn read_text(state: Shared<'_>, session_id: String, path: String) -> Result<Value, String> {
+    edit::read_text(state.inner(), &session_id, path)
+        .await
+        .map_err(err)
+}
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn write_text(
+    state: Shared<'_>,
+    session_id: String,
+    path: String,
+    content: String,
+    expected_size: Option<u64>,
+    expected_mtime: Option<u64>,
+    force: bool,
+) -> Result<Value, String> {
+    let expected = expected_size.zip(expected_mtime);
+    edit::write_text(state.inner(), &session_id, path, content, expected, force)
+        .await
+        .map_err(err)
+}
+#[tauri::command]
+async fn delete_entries(
+    state: Shared<'_>,
+    session_id: Option<String>,
+    directory: String,
+    names: Vec<String>,
+    count_only: bool,
+) -> Result<Value, String> {
+    edit::delete_entries(state.inner(), session_id, directory, names, !count_only)
+        .await
+        .map_err(err)
+}
+#[tauri::command]
+async fn chmod(
+    state: Shared<'_>,
+    session_id: String,
+    directory: String,
+    name: String,
+    mode: u32,
+) -> Result<(), String> {
+    edit::chmod(state.inner(), &session_id, directory, name, mode)
+        .await
+        .map_err(err)
+}
 
 fn main() {
     tauri::Builder::default()
@@ -320,7 +367,11 @@ fn main() {
             list_files,
             file_action,
             transfer,
-            cancel_transfer
+            cancel_transfer,
+            read_text,
+            write_text,
+            delete_entries,
+            chmod
         ])
         .run(tauri::generate_context!())
         .expect("Không khởi động được SSH Studio");
