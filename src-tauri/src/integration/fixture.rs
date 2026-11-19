@@ -29,6 +29,7 @@ pub const KBD_USER: &str = "kbd";
 
 pub type EventLog = Arc<StdMutex<Vec<(String, Value)>>>;
 type Responder = Arc<StdMutex<Option<Box<dyn Fn(&str, &Value) + Send + Sync>>>>;
+pub type Answers = Arc<StdMutex<std::collections::VecDeque<Vec<String>>>>;
 
 #[derive(Clone)]
 struct TestServer {
@@ -290,9 +291,9 @@ impl server::Handler for TestSession {
 
 /// Keyring entries are shared per test process; delete them when the last fixture ends.
 static VAULT_USERS: StdMutex<usize> = StdMutex::new(0);
-struct VaultGuard;
+pub struct VaultGuard;
 impl VaultGuard {
-    fn new() -> Self {
+    pub fn new() -> Self {
         *VAULT_USERS.lock().unwrap() += 1;
         VaultGuard
     }
@@ -325,6 +326,8 @@ pub struct Fixture {
     pub user_key: russh::keys::PrivateKey,
     pub sftp_opened: Arc<std::sync::atomic::AtomicUsize>,
     pub write_limit: WriteLimit,
+    /// Answers for the next authentication prompts, in order (an empty queue cancels).
+    pub answers: Answers,
     responder: Responder,
     server_task: tokio::task::JoinHandle<()>,
     _vault: VaultGuard,
@@ -409,7 +412,17 @@ impl Fixture {
         let responder: Responder = Default::default();
         let captured = events.clone();
         let respond = responder.clone();
+        let answers: Answers = Default::default();
+        let queued = answers.clone();
+        let prompted = state.clone();
         let sink = Events(Arc::new(move |name, value| {
+            if name == "auth-prompt" {
+                let answer = queued.lock().unwrap().pop_front();
+                let id = value["id"].as_str().unwrap_or_default();
+                if let Some(tx) = prompted.prompts.lock().unwrap().remove(id) {
+                    let _ = tx.send(answer);
+                }
+            }
             if let Some(callback) = respond.lock().unwrap().as_ref() {
                 callback(name, &value);
             }
@@ -428,6 +441,7 @@ impl Fixture {
             user_key,
             sftp_opened,
             write_limit,
+            answers,
             responder,
             server_task,
             _vault: vault,
@@ -445,6 +459,8 @@ impl Fixture {
             group: "Test".into(),
             auth: auth.into(),
             key_id: String::new(),
+            jump_host_id: String::new(),
+            proxy: Default::default(),
         }
     }
 
@@ -462,6 +478,14 @@ impl Fixture {
             )
             .unwrap();
         store.data.keys.last().unwrap().id.clone()
+    }
+
+    /// Queues one single-field answer per string for the next prompts.
+    pub fn answer(&self, answers: &[&str]) {
+        self.answers
+            .lock()
+            .unwrap()
+            .extend(answers.iter().map(|a| vec![a.to_string()]));
     }
 
     /// Calls `callback` synchronously for every emitted event (used to answer prompts).
@@ -524,12 +548,12 @@ impl Fixture {
 
     /// Opens a password session on the fixture.
     pub async fn connect(&self, id: &str) -> Arc<crate::ssh::Session> {
+        self.answer(&[PASSWORD]);
         crate::ssh::establish(
             self.sink.clone(),
             self.state.clone(),
             id.into(),
             self.host("h", USER, "password"),
-            PASSWORD.into(),
         )
         .await
         .unwrap();

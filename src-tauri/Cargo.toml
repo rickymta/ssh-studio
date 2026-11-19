@@ -33,6 +33,7 @@ hmac = "0.13"
 sha1 = "0.11"
 sha2 = "0.11"
 argon2 = "0.6"
+futures = "0.3"
 
 # Argon2 is unusably slow without optimizations (PPK v3 tests, vault backups).
 [profile.dev.package.argon2]

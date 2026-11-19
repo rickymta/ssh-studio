@@ -16,8 +16,42 @@ pub struct Host {
     pub port: u16,
     pub username: String,
     pub group: String,
+    /// `password` | `key` | `agent` | `interactive` (keyboard-interactive / MFA).
     pub auth: String,
     pub key_id: String,
+    /// Saved host used as ProxyJump (empty: direct connection).
+    #[serde(default)]
+    pub jump_host_id: String,
+    #[serde(default)]
+    pub proxy: Proxy,
+}
+pub const AUTH_METHODS: [&str; 4] = ["password", "key", "agent", "interactive"];
+
+/// SOCKS5 / HTTP CONNECT proxy. The password only exists encrypted in `secret` (vault); the
+/// plain `password` field is accepted from the frontend when saving and never serialized.
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Proxy {
+    /// `none` | `socks5` | `http` (empty means none).
+    pub kind: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub secret: String,
+    #[serde(skip_serializing)]
+    pub password: Option<String>,
+}
+impl Proxy {
+    pub fn enabled(&self) -> bool {
+        !self.kind.is_empty() && self.kind != "none"
+    }
+    pub fn password(&self) -> anyhow::Result<Option<String>> {
+        if self.secret.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(unlock(&self.secret)?))
+        }
+    }
 }
 impl Host {
     pub fn validate(&self) -> anyhow::Result<()> {
@@ -29,9 +63,41 @@ impl Host {
             "Điền tên, địa chỉ, username và port hợp lệ."
         );
         anyhow::ensure!(
-            self.auth == "key" || self.auth == "password",
+            AUTH_METHODS.contains(&self.auth.as_str()),
             "Kiểu xác thực không hợp lệ."
         );
+        anyhow::ensure!(
+            self.jump_host_id != self.id,
+            "Server không thể làm jump host cho chính nó."
+        );
+        match self.proxy.kind.as_str() {
+            "" | "none" => {}
+            "socks5" | "http" => anyhow::ensure!(
+                !self.proxy.host.trim().is_empty() && self.proxy.port > 0,
+                "Điền địa chỉ và port của proxy."
+            ),
+            _ => anyhow::bail!("Kiểu proxy không hợp lệ."),
+        }
+        anyhow::ensure!(
+            !self.proxy.enabled() || self.jump_host_id.is_empty(),
+            "Chọn jump host hoặc proxy, không dùng cả hai cho cùng server."
+        );
+        Ok(())
+    }
+    /// Moves a proxy password typed in the form into the vault. `previous` is the stored
+    /// version of this host: an empty password keeps its secret (same proxy user).
+    pub fn seal_proxy_password(&mut self, previous: Option<&Host>) -> anyhow::Result<()> {
+        let typed = self.proxy.password.take().unwrap_or_default();
+        self.proxy.secret = if !self.proxy.enabled() || self.proxy.username.is_empty() {
+            String::new()
+        } else if !typed.is_empty() {
+            encrypt(typed.as_bytes(), &master_key()?)?
+        } else {
+            previous
+                .filter(|p| p.proxy.username == self.proxy.username)
+                .map(|p| p.proxy.secret.clone())
+                .unwrap_or_default()
+        };
         Ok(())
     }
 }
@@ -113,6 +179,14 @@ impl Store {
         let mut data = serde_json::to_value(&self.data).unwrap();
         for key in data["keys"].as_array_mut().unwrap() {
             key.as_object_mut().unwrap().remove("secret");
+        }
+        for host in data["hosts"].as_array_mut().unwrap() {
+            if let Some(proxy) = host["proxy"].as_object_mut() {
+                let saved = proxy
+                    .remove("secret")
+                    .is_some_and(|s| s.as_str().is_some_and(|s| !s.is_empty()));
+                proxy.insert("hasPassword".into(), serde_json::json!(saved));
+            }
         }
         data["home"] = serde_json::json!(dirs::home_dir().unwrap_or_default().to_string_lossy());
         data["os"] = serde_json::json!(std::env::consts::OS);
@@ -253,6 +327,60 @@ mod tests {
                 .recovered
                 .is_none()
         );
+    }
+    #[test]
+    fn proxy_password_is_sealed_and_never_exposed() {
+        let _vault = crate::integration::fixture::VaultGuard::new();
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::load(dir.path().to_owned()).unwrap();
+        let host_json = serde_json::json!({
+            "id": "h", "name": "n", "host": "example.test", "port": 22, "username": "u",
+            "group": "", "auth": "password", "keyId": "",
+            "proxy": {"kind": "socks5", "host": "proxy.test", "port": 1080,
+                      "username": "alice", "password": "proxy-secret-pw"}
+        });
+        let mut host: Host = serde_json::from_value(host_json.clone()).unwrap();
+        host.validate().unwrap();
+        host.seal_proxy_password(None).unwrap();
+        assert!(host.proxy.password.is_none());
+        assert_eq!(host.proxy.password().unwrap().unwrap(), "proxy-secret-pw");
+        store.data.hosts.push(host.clone());
+        store.save().unwrap();
+        let disk = std::fs::read_to_string(dir.path().join("workspace.json")).unwrap();
+        assert!(!disk.contains("proxy-secret-pw"));
+        let snapshot = store.snapshot().to_string();
+        assert!(!snapshot.contains("proxy-secret-pw"));
+        assert!(!snapshot.contains(&host.proxy.secret));
+        assert_eq!(store.snapshot()["hosts"][0]["proxy"]["hasPassword"], true);
+
+        // Re-saving with an empty password keeps the secret; another user drops it.
+        let mut edited: Host = serde_json::from_value(host_json.clone()).unwrap();
+        edited.proxy.password = None;
+        edited.seal_proxy_password(Some(&host)).unwrap();
+        assert_eq!(edited.proxy.secret, host.proxy.secret);
+        edited.proxy.username = "bob".into();
+        edited.seal_proxy_password(Some(&host)).unwrap();
+        assert!(edited.proxy.secret.is_empty());
+
+        let mut bad = host.clone();
+        bad.jump_host_id = "other".into();
+        assert!(bad.validate().is_err(), "proxy and jump host together");
+        bad.proxy.kind = "none".into();
+        bad.jump_host_id = "h".into();
+        assert!(bad.validate().is_err(), "self jump");
+        bad.jump_host_id.clear();
+        bad.auth = "telnet".into();
+        assert!(bad.validate().is_err());
+    }
+    #[test]
+    fn hosts_saved_by_v0_1_still_load() {
+        let host: Host = serde_json::from_value(serde_json::json!({
+            "id": "h", "name": "n", "host": "x", "port": 22, "username": "u",
+            "group": "", "auth": "key", "keyId": "k"
+        }))
+        .unwrap();
+        assert!(host.jump_host_id.is_empty() && !host.proxy.enabled());
+        host.validate().unwrap();
     }
     #[test]
     fn key_names_are_validated() {

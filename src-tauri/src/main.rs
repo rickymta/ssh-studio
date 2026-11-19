@@ -3,6 +3,7 @@ mod edit;
 mod files;
 #[cfg(test)]
 mod integration;
+mod proxy;
 mod ssh;
 mod store;
 mod sync;
@@ -35,6 +36,10 @@ pub struct AppState {
     /// Destinations currently being written by a transfer (no two writers per target).
     targets: std::sync::Mutex<std::collections::HashSet<String>>,
     slots: Arc<Semaphore>,
+    /// Pending authentication prompts (password, OTP…): answered by `auth_respond`.
+    prompts: std::sync::Mutex<HashMap<String, oneshot::Sender<Option<Vec<String>>>>>,
+    /// SSH agent socket / named pipe override (tests); `None` uses the system agent.
+    agent_path: std::sync::Mutex<Option<String>>,
 }
 impl AppState {
     pub fn new(store: Store) -> Self {
@@ -45,6 +50,8 @@ impl AppState {
             transfers: Mutex::new(HashMap::new()),
             targets: Default::default(),
             slots: Arc::new(Semaphore::new(2)),
+            prompts: Default::default(),
+            agent_path: Default::default(),
         }
     }
 }
@@ -63,6 +70,13 @@ async fn save_host(state: Shared<'_>, host: Host) -> Result<Value, String> {
     if host.auth == "key" && !store.data.keys.iter().any(|k| k.id == host.key_id) {
         return Err("Chọn SSH key trước.".into());
     }
+    let mut host = host;
+    if !host.jump_host_id.is_empty() && !store.data.hosts.iter().any(|h| h.id == host.jump_host_id)
+    {
+        return Err("Jump host không tồn tại.".into());
+    }
+    let previous = store.data.hosts.iter().find(|h| h.id == host.id).cloned();
+    host.seal_proxy_password(previous.as_ref()).map_err(err)?;
     let before = store.data.clone();
     store.data.hosts.retain(|h| h.id != host.id);
     store.data.hosts.push(host);
@@ -75,6 +89,12 @@ async fn save_host(state: Shared<'_>, host: Host) -> Result<Value, String> {
 #[tauri::command]
 async fn delete_host(state: Shared<'_>, id: String) -> Result<Value, String> {
     let mut store = state.store.lock().await;
+    if let Some(user) = store.data.hosts.iter().find(|h| h.jump_host_id == id) {
+        return Err(format!(
+            "Server đang là jump host của “{}”. Bỏ chọn jump host ở server đó trước.",
+            user.name
+        ));
+    }
     let before = store.data.clone();
     store.data.hosts.retain(|h| h.id != id);
     if let Err(e) = store.save() {
@@ -164,7 +184,6 @@ async fn connect(
     state: Shared<'_>,
     id: String,
     host_id: String,
-    password: String,
 ) -> Result<(), String> {
     let host = state
         .store
@@ -185,7 +204,6 @@ async fn connect(
         state.inner().clone(),
         id.clone(),
         host,
-        password,
     )
     .await
     .map_err(err);
@@ -193,6 +211,17 @@ async fn connect(
         let _ = app.emit("session", json!({"id":id,"status":"error","error":error}));
     }
     result
+}
+#[tauri::command]
+async fn auth_respond(
+    state: Shared<'_>,
+    id: String,
+    answers: Option<Vec<String>>,
+) -> Result<(), String> {
+    if let Some(tx) = state.prompts.lock().unwrap().remove(&id) {
+        let _ = tx.send(answers);
+    }
+    Ok(())
 }
 #[tauri::command]
 async fn terminal_input(state: Shared<'_>, id: String, data: String) -> Result<(), String> {
@@ -387,6 +416,7 @@ fn main() {
             delete_key,
             forget_host,
             verify_host,
+            auth_respond,
             connect,
             terminal_input,
             terminal_resize,

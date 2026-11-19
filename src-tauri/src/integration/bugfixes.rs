@@ -3,12 +3,12 @@ use super::fixture::*;
 use crate::{files, ssh};
 
 async fn connect(fx: &Fixture, id: &str) -> std::sync::Arc<ssh::Session> {
+    fx.answer(&[PASSWORD]);
     ssh::establish(
         fx.sink.clone(),
         fx.state.clone(),
         id.into(),
         fx.host("h", USER, "password"),
-        PASSWORD.into(),
     )
     .await
     .unwrap();

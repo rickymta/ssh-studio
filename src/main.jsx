@@ -6,7 +6,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import appIcon from "../assets/logo.svg";
 import statusbarIcon from "../assets/statusbar.svg";
 import { HostModal } from "./components/HostModal.jsx";
-import { PasswordModal } from "./components/PasswordModal.jsx";
+import { AuthPromptModal } from "./components/AuthPromptModal.jsx";
 import { KeyModal } from "./components/KeyModal.jsx";
 import { SessionPane } from "./components/SessionPane.jsx";
 import { TransferPanel } from "./components/TransferPanel.jsx";
@@ -46,6 +46,13 @@ import { Button, IconButton, Modal } from "./components/ui.jsx";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 
+const authLabels = {
+  password: "Password",
+  key: "SSH key",
+  agent: "SSH agent",
+  interactive: "MFA / OTP",
+};
+
 function App() {
   const [data, setData] = useState({
     hosts: [],
@@ -63,6 +70,7 @@ function App() {
   const [transfers, setTransfers] = useState([]);
   const [showTransfers, setShowTransfers] = useState(false);
   const [verification, setVerification] = useState([]);
+  const [prompts, setPrompts] = useState([]);
   const [ready, setReady] = useState(false);
   const [recoveredSeen, setRecoveredSeen] = useState(false);
   const sessionsRef = useRef(sessions);
@@ -108,6 +116,12 @@ function App() {
       ),
       register("host-verification-finished", (payload) =>
         setVerification((old) => old.filter((item) => item.id !== payload.id)),
+      ),
+      register("auth-prompt", (payload) =>
+        setPrompts((old) => [...old, payload]),
+      ),
+      register("auth-prompt-finished", (payload) =>
+        setPrompts((old) => old.filter((item) => item.id !== payload.id)),
       ),
       register("transfer", (payload) =>
         setTransfers((old) => {
@@ -166,7 +180,7 @@ function App() {
     setActive(id);
     setPage("session");
   };
-  const begin = async (host, password = "", reuseId = null) => {
+  const begin = async (host, reuseId = null) => {
     const id = reuseId || uid();
     // Reconnect keeps the existing tab (and its terminal scrollback) instead of opening a new one.
     setSessions((old) =>
@@ -182,7 +196,8 @@ function App() {
     setPage("session");
     setModal(null);
     try {
-      await call("connect", { id, hostId: host.id, password });
+      // Passwords / OTP are asked for through "auth-prompt" events while connecting.
+      await call("connect", { id, hostId: host.id });
       setData(await call("snapshot"));
     } catch (e) {
       setSessions((old) =>
@@ -197,8 +212,7 @@ function App() {
     if (!ready) return notify("Backend chưa sẵn sàng.", true);
     // Use the latest saved settings of the server when reconnecting.
     host = data.hosts.find((h) => h.id === host.id) || host;
-    if (host.auth === "password") setModal({ type: "password", host, reuseId });
-    else begin(host, "", reuseId);
+    begin(host, reuseId);
   };
   const closeSession = async (id) => {
     const item = sessions.find((s) => s.id === id);
@@ -570,7 +584,11 @@ function App() {
                               ) : (
                                 <LockKeyhole size={14} />
                               )}{" "}
-                              {host.auth === "key" ? "SSH key" : "Password"}
+                              {authLabels[host.auth] || "Password"}
+                              {host.jumpHostId && " · Jump"}
+                              {host.proxy?.kind &&
+                                host.proxy.kind !== "none" &&
+                                ` · ${host.proxy.kind.toUpperCase()}`}
                             </span>
                           </div>
                           <div className="server-card-bottom">
@@ -825,6 +843,7 @@ function App() {
       {modal?.type === "host" && (
         <HostModal
           host={modal.host}
+          hosts={data.hosts}
           keys={data.keys}
           close={() => setModal(null)}
           save={(host) =>
@@ -836,11 +855,24 @@ function App() {
           }
         />
       )}
-      {modal?.type === "password" && (
-        <PasswordModal
-          host={modal.host}
-          close={() => setModal(null)}
-          connect={(password) => begin(modal.host, password, modal.reuseId)}
+      {prompts.length > 0 && verification.length === 0 && (
+        <AuthPromptModal
+          prompt={prompts[0]}
+          label={(() => {
+            const host = sessions.find(
+              (s) => s.id === prompts[0].sessionId,
+            )?.host;
+            return host
+              ? `Phiên ${host.name} · ${host.username}@${host.host}:${host.port}`
+              : "";
+          })()}
+          respond={(answers) =>
+            run(async () => {
+              const id = prompts[0].id;
+              setPrompts((old) => old.filter((item) => item.id !== id));
+              await call("auth_respond", { id, answers });
+            })
+          }
         />
       )}
       {modal?.type === "key" && (

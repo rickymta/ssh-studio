@@ -14,20 +14,19 @@ async fn simultaneous_sessions_sftp_roundtrip_and_host_key_rejection() {
             .contains("BEGIN OPENSSH PRIVATE KEY")
     );
     let host = fx.host("fixture", USER, "password");
+    fx.answer(&[PASSWORD, PASSWORD]);
     let (a, b) = tokio::join!(
         ssh::establish(
             fx.sink.clone(),
             fx.state.clone(),
             "one".into(),
-            host.clone(),
-            PASSWORD.into()
+            host.clone()
         ),
         ssh::establish(
             fx.sink.clone(),
             fx.state.clone(),
             "two".into(),
-            host.clone(),
-            PASSWORD.into()
+            host.clone()
         )
     );
     a.unwrap();
@@ -109,7 +108,6 @@ async fn simultaneous_sessions_sftp_roundtrip_and_host_key_rejection() {
             key_id,
             ..host.clone()
         },
-        String::new(),
     )
     .await
     .unwrap();
@@ -123,13 +121,13 @@ async fn simultaneous_sessions_sftp_roundtrip_and_host_key_rejection() {
         .send(ssh::Input::Close)
         .await
         .unwrap();
+    fx.answer(&["wrong"]);
     assert!(
         ssh::establish(
             fx.sink.clone(),
             fx.state.clone(),
             "bad-password".into(),
-            host.clone(),
-            "wrong".into()
+            host.clone()
         )
         .await
         .is_err()
@@ -142,15 +140,9 @@ async fn simultaneous_sessions_sftp_roundtrip_and_host_key_rejection() {
         .known_hosts
         .insert(fx.address.clone(), "SHA256:changed".into());
     assert!(
-        ssh::establish(
-            fx.sink.clone(),
-            fx.state.clone(),
-            "bad-host".into(),
-            host,
-            PASSWORD.into()
-        )
-        .await
-        .is_err()
+        ssh::establish(fx.sink.clone(), fx.state.clone(), "bad-host".into(), host)
+            .await
+            .is_err()
     );
     one.input.send(ssh::Input::Close).await.unwrap();
     fx.wait(|n, v| n == "session" && v["id"] == "one" && v["status"] == "closed")
@@ -317,12 +309,12 @@ async fn fixture_direct_tcpip_and_tcpip_forward() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fixture_sftp_uses_real_directory_tree() {
     let fx = Fixture::start().await;
+    fx.answer(&[PASSWORD]);
     ssh::establish(
         fx.sink.clone(),
         fx.state.clone(),
         "s".into(),
         fx.host("h", USER, "password"),
-        PASSWORD.into(),
     )
     .await
     .unwrap();
