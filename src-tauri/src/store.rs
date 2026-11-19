@@ -258,6 +258,10 @@ pub fn credential_service() -> &'static str {
     static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     NAME.get_or_init(|| format!("dev.sshstudio.integration.{}", uuid::Uuid::new_v4()))
 }
+/// Encrypts a secret (private key, proxy password) with the vault master key.
+pub fn seal(bytes: &[u8]) -> anyhow::Result<String> {
+    encrypt(bytes, &master_key()?)
+}
 pub fn unlock(secret: &str) -> anyhow::Result<String> {
     Ok(String::from_utf8(decrypt(secret, &master_key()?)?)?)
 }

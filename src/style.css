@@ -1779,3 +1779,57 @@ select option {
   background: #46222a;
   color: #f3b3ba;
 }
+
+/* Key export / backups (F6) */
+.backup-warning {
+  justify-content: flex-start;
+  align-items: flex-start;
+  line-height: 1.6;
+  margin-bottom: 0;
+}
+.backup-warning svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.path-picker {
+  display: flex;
+  gap: 8px;
+}
+.path-picker input {
+  flex: 1;
+  cursor: pointer;
+}
+.restore-summary {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.restore-summary th,
+.restore-summary td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #2a3745;
+  text-align: left;
+}
+.restore-summary th {
+  color: #7c94a8;
+  font-weight: 500;
+  width: 40%;
+}
+.restore-conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.restore-conflict {
+  align-items: flex-start;
+}
+.restore-conflict span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.restore-conflict small {
+  color: #7c94a8;
+  overflow-wrap: anywhere;
+}

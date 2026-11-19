@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod backup;
 mod edit;
 mod files;
 mod forward;
@@ -425,6 +426,42 @@ async fn stop_forward(state: Shared<'_>, id: String) -> Result<bool, String> {
 async fn list_forwards(state: Shared<'_>) -> Result<Vec<Value>, String> {
     Ok(forward::list(state.inner()))
 }
+#[tauri::command]
+async fn export_key(
+    state: Shared<'_>,
+    key_id: String,
+    path: String,
+    passphrase: String,
+) -> Result<(), String> {
+    let store = state.store.lock().await;
+    backup::export_key(&store, &key_id, std::path::Path::new(&path), &passphrase).map_err(err)
+}
+#[tauri::command]
+async fn create_backup(state: Shared<'_>, path: String, password: String) -> Result<Value, String> {
+    let store = state.store.lock().await;
+    backup::create(&store, std::path::Path::new(&path), &password).map_err(err)
+}
+#[tauri::command]
+async fn inspect_backup(
+    state: Shared<'_>,
+    path: String,
+    password: String,
+) -> Result<Value, String> {
+    let store = state.store.lock().await;
+    backup::inspect(&store, std::path::Path::new(&path), &password).map_err(err)
+}
+#[tauri::command]
+async fn restore_backup(
+    state: Shared<'_>,
+    path: String,
+    password: String,
+    replace: Vec<String>,
+) -> Result<Value, String> {
+    let mut store = state.store.lock().await;
+    let report = backup::restore(&mut store, std::path::Path::new(&path), &password, &replace)
+        .map_err(err)?;
+    Ok(json!({"report": report, "snapshot": store.snapshot()}))
+}
 
 fn main() {
     tauri::Builder::default()
@@ -461,7 +498,11 @@ fn main() {
             sync_run,
             start_forward,
             stop_forward,
-            list_forwards
+            list_forwards,
+            export_key,
+            create_backup,
+            inspect_backup,
+            restore_backup
         ])
         .run(tauri::generate_context!())
         .expect("Không khởi động được SSH Studio");

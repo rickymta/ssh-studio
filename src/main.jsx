@@ -11,6 +11,14 @@ import { KeyModal } from "./components/KeyModal.jsx";
 import { SessionPane } from "./components/SessionPane.jsx";
 import { TransferPanel } from "./components/TransferPanel.jsx";
 import {
+  BackupModal,
+  ExportKeyModal,
+  RestoreModal,
+} from "./components/BackupModals.jsx";
+import {
+  ArchiveRestore,
+  DatabaseBackup,
+  FileKey,
   Terminal,
   Server,
   KeyRound,
@@ -39,6 +47,7 @@ import {
   uid,
   cleanError,
   osLabel,
+  restoreSummary,
   retryRequest,
 } from "./lib.js";
 import { Button, IconButton, Modal } from "./components/ui.jsx";
@@ -641,6 +650,18 @@ function App() {
                 </div>
                 <div className="actions">
                   <Button
+                    icon={ArchiveRestore}
+                    onClick={() => setModal({ type: "restore" })}
+                  >
+                    Khôi phục
+                  </Button>
+                  <Button
+                    icon={DatabaseBackup}
+                    onClick={() => setModal({ type: "backup" })}
+                  >
+                    Sao lưu
+                  </Button>
+                  <Button
                     icon={Upload}
                     onClick={() => setModal({ type: "key", mode: "import" })}
                   >
@@ -661,7 +682,8 @@ function App() {
                   <strong>Private key được mã hóa trên máy</strong>
                   <p>
                     Khóa bảo vệ nằm trong Windows Credential Manager. Chỉ public
-                    key được hiển thị và sao chép.
+                    key được hiển thị; private key chỉ rời vault khi bạn chủ
+                    động xuất hoặc sao lưu (có mật khẩu).
                   </p>
                 </div>
               </div>
@@ -696,6 +718,11 @@ function App() {
                       >
                         Public key
                       </Button>
+                      <IconButton
+                        icon={FileKey}
+                        title="Xuất private key"
+                        onClick={() => setModal({ type: "export", key })}
+                      />
                       <IconButton
                         icon={Trash2}
                         title="Xóa key"
@@ -905,6 +932,37 @@ function App() {
             setData(result);
             setModal(null);
             notify("SSH key đã được lưu vào thư viện.");
+          }}
+        />
+      )}
+      {modal?.type === "export" && (
+        <ExportKeyModal
+          keyItem={modal.key}
+          close={() => setModal(null)}
+          done={(path) => {
+            setModal(null);
+            notify(`Đã xuất private key ra ${path}.`);
+          }}
+        />
+      )}
+      {modal?.type === "backup" && (
+        <BackupModal
+          close={() => setModal(null)}
+          done={(counts, path) => {
+            setModal(null);
+            notify(
+              `Đã sao lưu ${counts.hosts} server, ${counts.keys} key, ${counts.knownHosts} known host vào ${path}.`,
+            );
+          }}
+        />
+      )}
+      {modal?.type === "restore" && (
+        <RestoreModal
+          close={() => setModal(null)}
+          done={(result) => {
+            setData(result.snapshot);
+            setModal(null);
+            notify(`Đã khôi phục: ${restoreSummary(result.report)}.`);
           }}
         />
       )}

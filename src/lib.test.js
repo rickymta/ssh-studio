@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  backupFileName,
   binaryBytes,
   clipboardChord,
+  keyFileName,
+  passwordProblem,
+  restoreSummary,
   deleteSummary,
   forwardLabel,
   forwardRows,
@@ -258,6 +262,38 @@ describe("port forwarding (F5)", () => {
       ["web", true, "running"],
       ["socks", false, "running"],
     ]);
+  });
+});
+
+describe("key export and backups (F6)", () => {
+  it("checks backup passwords", () => {
+    expect(passwordProblem("short", "short")).toMatch(/8/);
+    expect(passwordProblem("long enough", "long enougH")).toMatch(/khớp/);
+    expect(passwordProblem("long enough", "long enough")).toBe(null);
+    expect(passwordProblem("", "", 0)).toBe(null);
+  });
+  it("suggests file names", () => {
+    expect(backupFileName(new Date("2026-03-05T10:00:00Z"))).toBe(
+      "ssh-studio-2026-03-05.sshstudio-backup",
+    );
+    expect(
+      keyFileName({ algorithm: "ssh-ed25519", name: "Work Laptop!" }),
+    ).toBe("id_ed25519_work-laptop");
+  });
+  it("summarises a restore", () => {
+    expect(
+      restoreSummary({
+        hostsAdded: 2,
+        hostsSkipped: 1,
+        keysAdded: 1,
+        keysSkipped: 0,
+        knownAdded: 3,
+        knownReplaced: 1,
+        knownKept: 0,
+      }),
+    ).toBe(
+      "2 server mới, 1 key mới, 3 known host mới, bỏ qua 1 mục đã có, thay 1 fingerprint",
+    );
   });
 });
 

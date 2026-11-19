@@ -241,6 +241,35 @@ export function forwardRows(saved = [], live = {}, sessionId) {
   return rows;
 }
 
+/** Key export / vault backups (F6). */
+export function passwordProblem(password, confirmation, min = 8) {
+  if (password.length < min) return `Cần ít nhất ${min} ký tự.`;
+  if (password !== confirmation) return "Hai lần nhập không khớp.";
+  return null;
+}
+export const backupFileName = (date = new Date()) =>
+  `ssh-studio-${date.toISOString().slice(0, 10)}.sshstudio-backup`;
+/** "id_ed25519_work-laptop" style default name for an exported key. */
+export const keyFileName = (key) =>
+  `id_${String(key.algorithm || "key")
+    .toLowerCase()
+    .replace(/^ssh-/, "")}_${String(key.name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")}`.replace(/_$/, "");
+export function restoreSummary(r) {
+  const parts = [
+    `${r.hostsAdded} server mới`,
+    `${r.keysAdded} key mới`,
+    `${r.knownAdded} known host mới`,
+  ];
+  const skipped = r.hostsSkipped + r.keysSkipped;
+  if (skipped) parts.push(`bỏ qua ${skipped} mục đã có`);
+  if (r.knownReplaced) parts.push(`thay ${r.knownReplaced} fingerprint`);
+  if (r.knownKept) parts.push(`giữ ${r.knownKept} fingerprint hiện tại`);
+  return parts.join(", ");
+}
+
 /** Human label for the backend's `std::env::consts::OS`. */
 export function osLabel(os) {
   return (
