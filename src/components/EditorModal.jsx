@@ -1,13 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { LoaderCircle, RotateCcw, Save, TriangleAlert } from "lucide-react";
-import {
-  call,
-  cleanError,
-  lineEnding,
-  size,
-  withLineEnding,
-} from "../lib.js";
+import { call, cleanError, lineEnding, size, withLineEnding } from "../lib.js";
 import { Button, Modal } from "./ui.jsx";
 
 /**

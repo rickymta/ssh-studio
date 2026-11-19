@@ -5,7 +5,8 @@ import { NameModal } from "./NameModal.jsx";
 import { ConflictModal } from "./ConflictModal.jsx";
 import { EditorModal } from "./EditorModal.jsx";
 import { ChmodModal } from "./ChmodModal.jsx";
-import { FolderOpen } from "lucide-react";
+import { SyncModal } from "./SyncModal.jsx";
+import { FolderOpen, FolderSync } from "lucide-react";
 import {
   call,
   uid,
@@ -31,6 +32,7 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
   const [conflict, setConflict] = useState(null);
   const [editing, setEditing] = useState(null);
   const [chmodEntry, setChmodEntry] = useState(null);
+  const [syncing, setSyncing] = useState(false);
   const [drag, setDrag] = useState(null);
   const [dropHover, setDropHover] = useState(false);
   const root = useRef(null);
@@ -117,9 +119,7 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
       });
       const label =
         names.length === 1 ? `“${names[0]}”` : `${names.length} mục đã chọn`;
-      const detail = counted.folders
-        ? ` (gồm ${deleteSummary(counted)})`
-        : "";
+      const detail = counted.folders ? ` (gồm ${deleteSummary(counted)})` : "";
       if (
         !(await confirm(
           `Xóa vĩnh viễn ${label}${detail}? Không thể hoàn tác.`,
@@ -157,7 +157,8 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
   /** Transfers `items` ({directory, name}) to `toDirectory` on the other side. */
   const send = async (direction, items, toDirectory) => {
     if (!items.length) return;
-    if (!connected) return notify("Kết nối server trước khi truyền file.", true);
+    if (!connected)
+      return notify("Kết nối server trước khi truyền file.", true);
     const to = direction === "upload" ? "remote" : "local";
     let existing;
     try {
@@ -172,17 +173,20 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
     }
     const key = (name) => (to === "local" ? name.toLowerCase() : name);
     const byKey = new Map(items.map((item) => [key(item.name), item]));
-    const plan = await planConflicts([...byKey.keys()], existing, (k) =>
-      new Promise((resolve) =>
-        setConflict({
-          name: byKey.get(k).name,
-          side: to,
-          resolve: (answer) => {
-            setConflict(null);
-            resolve(answer);
-          },
-        }),
-      ),
+    const plan = await planConflicts(
+      [...byKey.keys()],
+      existing,
+      (k) =>
+        new Promise((resolve) =>
+          setConflict({
+            name: byKey.get(k).name,
+            side: to,
+            resolve: (answer) => {
+              setConflict(null);
+              resolve(answer);
+            },
+          }),
+        ),
     );
     if (!plan) return;
     let sent = 0;
@@ -194,7 +198,8 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
             id: uid(),
             sessionId: session.id,
             direction,
-            localDirectory: direction === "upload" ? item.directory : toDirectory,
+            localDirectory:
+              direction === "upload" ? item.directory : toDirectory,
             remoteDirectory:
               direction === "upload" ? toDirectory : item.directory,
             name: item.name,
@@ -232,7 +237,10 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
         .elementFromPoint(ev.clientX, ev.clientY)
         ?.closest?.("[data-drop-side]");
     const move = (ev) => {
-      if (!active && Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) < 6)
+      if (
+        !active &&
+        Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) < 6
+      )
         return;
       if (!active) {
         active = true;
@@ -317,9 +325,17 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
         <FolderOpen size={14} />
         Hai khung local / remote
         <span>
-          Ctrl/Shift để chọn nhiều · Kéo thả giữa hai khung hoặc từ Explorer
-          vào remote
+          Ctrl/Shift để chọn nhiều · Kéo thả giữa hai khung hoặc từ Explorer vào
+          remote
         </span>
+        <button
+          className="text-button"
+          disabled={!connected || !!errors.remote || !!errors.local}
+          title="So sánh và đồng bộ hai thư mục đang mở"
+          onClick={() => setSyncing(true)}
+        >
+          <FolderSync size={13} /> Đồng bộ
+        </button>
       </div>
       <div className="file-panes">
         {["local", "remote"].map((side) => {
@@ -400,6 +416,16 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
             setEditing(null);
             load("remote", paths.current.remote);
           }}
+        />
+      )}
+      {syncing && (
+        <SyncModal
+          session={session}
+          localDirectory={paths.current.local}
+          remoteDirectory={paths.current.remote}
+          notify={notify}
+          showQueue={showQueue}
+          close={() => setSyncing(false)}
         />
       )}
       {chmodEntry && (

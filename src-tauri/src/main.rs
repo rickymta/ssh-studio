@@ -5,6 +5,7 @@ mod files;
 mod integration;
 mod ssh;
 mod store;
+mod sync;
 mod transfer;
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc};
@@ -341,6 +342,32 @@ async fn chmod(
         .await
         .map_err(err)
 }
+#[tauri::command]
+async fn sync_preview(
+    state: Shared<'_>,
+    session_id: String,
+    local_directory: String,
+    remote_directory: String,
+) -> Result<Value, String> {
+    sync::preview(
+        state.inner(),
+        &session_id,
+        local_directory,
+        remote_directory,
+    )
+    .await
+    .map_err(err)
+}
+#[tauri::command]
+async fn sync_run(
+    app: tauri::AppHandle,
+    state: Shared<'_>,
+    request: sync::SyncRun,
+) -> Result<Value, String> {
+    sync::run(Events::desktop(app), state.inner().clone(), request)
+        .await
+        .map_err(err)
+}
 
 fn main() {
     tauri::Builder::default()
@@ -371,7 +398,9 @@ fn main() {
             read_text,
             write_text,
             delete_entries,
-            chmod
+            chmod,
+            sync_preview,
+            sync_run
         ])
         .run(tauri::generate_context!())
         .expect("Không khởi động được SSH Studio");

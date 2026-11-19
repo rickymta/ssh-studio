@@ -4,4 +4,5 @@ mod bugfixes;
 mod edits;
 mod fixture;
 mod sftp_disk;
+mod sync;
 mod transfers;

@@ -14,6 +14,9 @@ import {
   planConflicts,
   retryRequest,
   splitPath,
+  syncDefaults,
+  syncRequest,
+  syncSelectable,
   size,
   textBytes,
   toBase64,
@@ -81,9 +84,7 @@ describe("multi-select (F1)", () => {
       shift: true,
     });
     expect(s.selection.sort()).toEqual(["a", "b", "c", "d", "e"]);
-    expect(nextSelection(names, ["a", "b"], "a", "e").selection).toEqual([
-      "e",
-    ]);
+    expect(nextSelection(names, ["a", "b"], "a", "e").selection).toEqual(["e"]);
   });
 });
 
@@ -170,6 +171,50 @@ describe("remote editing (F2)", () => {
       "3 thư mục và 12 file",
     );
     expect(deleteSummary({ files: 1, folders: 0 })).toBe("1 file");
+  });
+});
+
+describe("sync planning (F3)", () => {
+  const entries = [
+    { path: "a.txt", folder: false, state: "localOnly" },
+    { path: "b.txt", folder: false, state: "localNewer" },
+    { path: "c.txt", folder: false, state: "remoteNewer" },
+    { path: "d.txt", folder: false, state: "same" },
+    { path: "e.txt", folder: false, state: "changed" },
+    { path: "old", folder: true, state: "remoteOnly" },
+    { path: "old/x.php", folder: false, state: "remoteOnly" },
+    { path: "robots.txt", folder: false, state: "remoteOnly" },
+    { path: "kind", folder: true, state: "typeMismatch" },
+  ];
+  it("pre-checks only safe copies for each direction", () => {
+    expect(syncDefaults(entries, "upload")).toEqual(["a.txt", "b.txt"]);
+    expect(syncDefaults(entries, "download")).toEqual([
+      "c.txt",
+      "old",
+      "old/x.php",
+      "robots.txt",
+    ]);
+    expect(
+      entries.filter((e) => syncSelectable(e, "upload")).map((e) => e.path),
+    ).toEqual(["a.txt", "b.txt", "c.txt", "e.txt"]);
+  });
+  it("deletes only when mirror is on, top-level destination-only entries", () => {
+    const preview = {
+      localDirectory: "C:\\site",
+      remoteDirectory: "/site",
+      entries,
+    };
+    const checked = new Set(["a.txt", "c.txt", "d.txt", "kind"]);
+    const plain = syncRequest(preview, "s", "upload", checked, false);
+    expect(plain.items).toEqual([
+      { path: "a.txt", folder: false },
+      { path: "c.txt", folder: false },
+    ]);
+    expect(plain.delete).toEqual([]);
+    expect(syncRequest(preview, "s", "upload", checked, true).delete).toEqual([
+      "old",
+      "robots.txt",
+    ]);
   });
 });
 

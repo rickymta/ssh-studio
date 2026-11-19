@@ -147,7 +147,9 @@ export function modeString(mode) {
   return [6, 3, 0]
     .map((shift) => {
       const bits = (mode >> shift) & 7;
-      return (bits & 4 ? "r" : "-") + (bits & 2 ? "w" : "-") + (bits & 1 ? "x" : "-");
+      return (
+        (bits & 4 ? "r" : "-") + (bits & 2 ? "w" : "-") + (bits & 1 ? "x" : "-")
+      );
     })
     .join("");
 }
@@ -157,6 +159,55 @@ export function deleteSummary({ files, folders }) {
   if (folders) parts.push(`${folders} thư mục`);
   if (files) parts.push(`${files} file`);
   return parts.join(" và ") || "0 mục";
+}
+
+/** Sync comparison states (F3). */
+export const syncStates = {
+  localOnly: "Chỉ có ở local",
+  remoteOnly: "Chỉ có ở remote",
+  localNewer: "Local mới hơn",
+  remoteNewer: "Remote mới hơn",
+  changed: "Khác kích thước",
+  same: "Giống nhau",
+  typeMismatch: "Khác loại (file / thư mục)",
+};
+const sourceOnly = { upload: "localOnly", download: "remoteOnly" };
+const destOnly = { upload: "remoteOnly", download: "localOnly" };
+const sourceNewer = { upload: "localNewer", download: "remoteNewer" };
+/** Entries that can be copied in `direction` (newer-at-destination ones only on request). */
+export const syncSelectable = (entry, direction) =>
+  [sourceOnly[direction], "localNewer", "remoteNewer", "changed"].includes(
+    entry.state,
+  );
+/** Pre-checked entries: missing at the destination or newer at the source. Never deletes. */
+export const syncDefaults = (entries, direction) =>
+  entries
+    .filter((e) =>
+      [sourceOnly[direction], sourceNewer[direction]].includes(e.state),
+    )
+    .map((e) => e.path);
+/** Destination-only entries a mirror would delete, top level only. */
+export function mirrorTargets(entries, direction) {
+  const paths = entries
+    .filter((e) => e.state === destOnly[direction])
+    .map((e) => e.path)
+    .sort();
+  return paths.filter(
+    (p) => !paths.some((q) => q !== p && p.startsWith(q + "/")),
+  );
+}
+/** Request body for `sync_run` from the checked paths. */
+export function syncRequest(preview, sessionId, direction, checked, mirror) {
+  return {
+    sessionId,
+    localDirectory: preview.localDirectory,
+    remoteDirectory: preview.remoteDirectory,
+    direction,
+    items: preview.entries
+      .filter((e) => checked.has(e.path) && syncSelectable(e, direction))
+      .map((e) => ({ path: e.path, folder: e.folder })),
+    delete: mirror ? mirrorTargets(preview.entries, direction) : [],
+  };
 }
 
 /** Human label for the backend's `std::env::consts::OS`. */

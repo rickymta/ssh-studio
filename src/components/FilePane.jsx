@@ -45,7 +45,9 @@ export function FilePane({
   useEffect(() => setAddress(listing.path), [listing.path]);
   const chosen = selection.selection;
   const single =
-    chosen.length === 1 ? listing.files.find((f) => f.name === chosen[0]) : null;
+    chosen.length === 1
+      ? listing.files.find((f) => f.name === chosen[0])
+      : null;
   const names = listing.files.map((f) => f.name);
   const pick = (file, e = {}) =>
     select(
@@ -199,7 +201,12 @@ export function FilePane({
                   data-drop-path={isFolder(file) ? join(file.name) : undefined}
                   data-drop-folder={isFolder(file) ? file.name : undefined}
                   onPointerDown={(e) => {
-                    if (e.button === 0 && !e.ctrlKey && !e.shiftKey && !e.metaKey)
+                    if (
+                      e.button === 0 &&
+                      !e.ctrlKey &&
+                      !e.shiftKey &&
+                      !e.metaKey
+                    )
                       startDrag(file, e);
                   }}
                   onClick={(e) => pick(file, e)}

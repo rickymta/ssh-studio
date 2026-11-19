@@ -15,9 +15,12 @@ const bits = [
 
 /** Changes POSIX permissions of a remote entry (F2). */
 export function ChmodModal({ name, mode: initial, close, save }) {
-  const [text, setText] = useState((initial & 0o7777).toString(8).padStart(3, "0"));
+  const [text, setText] = useState(
+    (initial & 0o7777).toString(8).padStart(3, "0"),
+  );
   const mode = parseMode(text);
-  const toggle = (bit) => setText(((mode ?? 0) ^ bit).toString(8).padStart(3, "0"));
+  const toggle = (bit) =>
+    setText(((mode ?? 0) ^ bit).toString(8).padStart(3, "0"));
   return (
     <Modal title="Đổi quyền" subtitle={`“${name}”`} close={close}>
       <form
