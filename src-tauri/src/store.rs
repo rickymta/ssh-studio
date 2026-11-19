@@ -72,7 +72,10 @@ impl Store {
         let target = self.directory.join("workspace.json");
         let temp = self.directory.join("workspace.json.tmp");
         std::fs::write(&temp, content)?;
-        std::fs::OpenOptions::new().write(true).open(&temp)?.sync_all()?;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&temp)?
+            .sync_all()?;
         std::fs::rename(temp, target)?;
         Ok(())
     }
@@ -131,7 +134,9 @@ fn master_key() -> anyhow::Result<Vec<u8>> {
     }
 }
 #[cfg(not(test))]
-fn credential_service() -> &'static str { "dev.sshstudio.desktop" }
+fn credential_service() -> &'static str {
+    "dev.sshstudio.desktop"
+}
 #[cfg(test)]
 pub fn credential_service() -> &'static str {
     static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();

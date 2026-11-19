@@ -31,6 +31,17 @@ pub struct AppState {
     transfers: Mutex<HashMap<String, Arc<Notify>>>,
     slots: Arc<Semaphore>,
 }
+impl AppState {
+    pub fn new(store: Store) -> Self {
+        Self {
+            store: Mutex::new(store),
+            sessions: Mutex::new(HashMap::new()),
+            verdicts: Mutex::new(HashMap::new()),
+            transfers: Mutex::new(HashMap::new()),
+            slots: Arc::new(Semaphore::new(2)),
+        }
+    }
+}
 type Shared<'a> = State<'a, Arc<AppState>>;
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -276,13 +287,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let store = Store::load(app.path().app_data_dir()?)?;
-            app.manage(Arc::new(AppState {
-                store: Mutex::new(store),
-                sessions: Mutex::new(HashMap::new()),
-                verdicts: Mutex::new(HashMap::new()),
-                transfers: Mutex::new(HashMap::new()),
-                slots: Arc::new(Semaphore::new(2)),
-            }));
+            app.manage(Arc::new(AppState::new(store)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
