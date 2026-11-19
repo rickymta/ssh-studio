@@ -1,0 +1,36 @@
+{
+  "name": "ssh-studio",
+  "version": "0.1.0",
+  "description": "SSH Studio — multi-server terminals and SFTP workspace",
+  "author": "SSH Studio",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rickymta/ssh-studio.git"
+  },
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "start": "tauri dev",
+    "tauri": "tauri",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "pack": "tauri build --no-bundle",
+    "dist": "tauri build"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.10.0",
+    "@xterm/xterm": "5.5.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-dialog": "^2.8.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "@tauri-apps/cli": "^2.12.4",
+    "vite": "^6.1.0"
+  }
+}

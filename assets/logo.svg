@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="32" y1="12" x2="224" y2="248" gradientUnits="userSpaceOnUse"><stop stop-color="#203D46"/><stop offset="1" stop-color="#0B1824"/></linearGradient>
+    <linearGradient id="folder" x1="54" y1="60" x2="206" y2="202" gradientUnits="userSpaceOnUse"><stop stop-color="#ADFFE0"/><stop offset="1" stop-color="#49CEB8"/></linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="url(#bg)"/>
+  <rect x="9" y="9" width="238" height="238" rx="53" stroke="#597E84" stroke-opacity=".35" stroke-width="2"/>
+  <path d="M53 94V76C53 66.059 61.059 58 71 58H100L119 77H185C194.941 77 203 85.059 203 95V176C203 185.941 194.941 194 185 194H71C61.059 194 53 185.941 53 176V94Z" fill="#133B3B"/>
+  <path d="M53 96V76C53 66.059 61.059 58 71 58H100L119 77H185C194.941 77 203 85.059 203 95V176C203 185.941 194.941 194 185 194H71C61.059 194 53 185.941 53 176V96Z" stroke="url(#folder)" stroke-width="11" stroke-linejoin="round"/>
+  <path d="M83 113L108 136L83 159" stroke="#E0FFF1" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M131 159H170" stroke="#75EACB" stroke-width="12" stroke-linecap="round"/>
+</svg>
