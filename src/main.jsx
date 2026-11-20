@@ -1,14 +1,25 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createRoot } from "react-dom/client";
-import { invoke } from "@tauri-apps/api/core";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open, confirm } from "@tauri-apps/plugin-dialog";
-import { Terminal as XTerminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import appIcon from "../assets/logo.svg";
 import statusbarIcon from "../assets/statusbar.svg";
+import { HostModal } from "./components/HostModal.jsx";
+import { AuthPromptModal } from "./components/AuthPromptModal.jsx";
+import { KeyModal } from "./components/KeyModal.jsx";
+import { SessionPane } from "./components/SessionPane.jsx";
+import { TransferPanel } from "./components/TransferPanel.jsx";
+import { SettingsPage } from "./components/SettingsPage.jsx";
 import {
+  BackupModal,
+  ExportKeyModal,
+  RestoreModal,
+} from "./components/BackupModals.jsx";
+import {
+  ArchiveRestore,
+  DatabaseBackup,
+  FileKey,
   Terminal,
   Server,
   KeyRound,
@@ -16,134 +27,46 @@ import {
   Search,
   Folder,
   FolderOpen,
-  File,
-  ArrowUp,
-  ArrowDown,
   Upload,
   Download,
   X,
   ChevronRight,
   ChevronDown,
-  MoreHorizontal,
   Pencil,
   Trash2,
   Copy,
   ShieldCheck,
-  RefreshCw,
   Monitor,
-  Network,
   Check,
-  LoaderCircle,
   Unplug,
   LayoutGrid,
-  ArrowLeft,
-  FolderPlus,
-  HardDrive,
   LockKeyhole,
-  ExternalLink,
+  Settings as SettingsIcon,
 } from "lucide-react";
+import {
+  desktop,
+  call,
+  uid,
+  cleanError,
+  osLabel,
+  restoreSummary,
+  retryRequest,
+  withDefaults,
+  shortcut,
+  cycleTab,
+  zoomFont,
+} from "./lib.js";
+import { Button, IconButton, Modal } from "./components/ui.jsx";
+
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 
-const desktop = !!window.__TAURI_INTERNALS__;
-const call = (name, args = {}) =>
-  desktop
-    ? invoke(name, args)
-    : Promise.reject("Chạy bằng npm start để sử dụng backend Tauri.");
-const uid = () => crypto.randomUUID();
-const cleanError = (e) => String(e).replace(/^Error: /, "");
-const size = (bytes) =>
-  bytes < 1024
-    ? `${bytes} B`
-    : bytes < 1048576
-      ? `${(bytes / 1024).toFixed(1)} KB`
-      : `${(bytes / 1048576).toFixed(1)} MB`;
-const statuses = {
-  connecting: "Đang kết nối",
-  connected: "Đã kết nối",
-  closed: "Đã ngắt",
-  error: "Lỗi kết nối",
-  queued: "Đang chờ",
-  running: "Đang truyền",
-  completed: "Hoàn tất",
-  failed: "Thất bại",
-  cancelled: "Đã hủy",
+const authLabels = {
+  password: "Password",
+  key: "SSH key",
+  agent: "SSH agent",
+  interactive: "MFA / OTP",
 };
-function Button({ icon: Icon, children, variant = "", ...props }) {
-  return (
-    <button className={`button ${variant}`} {...props}>
-      {Icon && <Icon size={16} />}
-      {children}
-    </button>
-  );
-}
-function IconButton({ icon: Icon, title, ...props }) {
-  return (
-    <button className="icon-button" title={title} aria-label={title} {...props}>
-      <Icon size={17} />
-    </button>
-  );
-}
-function Modal({ title, subtitle, children, close, wide = false }) {
-  const ref = useRef();
-  useEffect(() => {
-    const prior = document.activeElement;
-    ref.current?.focus();
-    const handler = (e) => {
-      if (e.key === "Escape") close();
-      if (e.key === "Tab") {
-        const list = ref.current?.querySelectorAll(
-          'button:not(:disabled),input,select,textarea,[tabindex="0"]',
-        );
-        if (!list?.length) return;
-        if (e.shiftKey && document.activeElement === list[0]) {
-          e.preventDefault();
-          list[list.length - 1].focus();
-        } else if (
-          !e.shiftKey &&
-          document.activeElement === list[list.length - 1]
-        ) {
-          e.preventDefault();
-          list[0].focus();
-        }
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => {
-      document.removeEventListener("keydown", handler);
-      prior?.focus();
-    };
-  }, []);
-  return (
-    <div className="modal-backdrop">
-      <section
-        ref={ref}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className={`modal ${wide ? "wide" : ""}`}
-      >
-        <div className="modal-heading">
-          <div>
-            <h2>{title}</h2>
-            <p>{subtitle}</p>
-          </div>
-          <IconButton icon={X} title="Đóng" onClick={close} />
-        </div>
-        {children}
-      </section>
-    </div>
-  );
-}
-function Field({ label, children, ...props }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      {children || <input {...props} />}
-    </label>
-  );
-}
 
 function App() {
   const [data, setData] = useState({
@@ -162,11 +85,23 @@ function App() {
   const [transfers, setTransfers] = useState([]);
   const [showTransfers, setShowTransfers] = useState(false);
   const [verification, setVerification] = useState([]);
+  const [prompts, setPrompts] = useState([]);
+  const [forwards, setForwards] = useState({});
   const [ready, setReady] = useState(false);
+  const [recoveredSeen, setRecoveredSeen] = useState(false);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   const transfersRef = useRef(transfers);
   transfersRef.current = transfers;
+  const settings = withDefaults(data.settings);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  // Servers of recently closed sessions, newest last (Ctrl+Shift+T).
+  const closedHosts = useRef([]);
+  const searchBox = useRef();
+  const [trayReady, setTrayReady] = useState(false);
+  const trayRef = useRef(false);
+  trayRef.current = trayReady;
   const notify = useCallback(
     (message, error = false) =>
       setToast({ message: cleanError(message), error }),
@@ -179,6 +114,25 @@ function App() {
       notify(e, true);
     }
   };
+  const saveSettings = async (next, quiet = false) => {
+    const previous = settingsRef.current;
+    // Applied at once (fast repeated zoom keys); the backend's normalised copy follows.
+    setData((old) => ({ ...old, settings: next }));
+    if (!desktop) return;
+    try {
+      setData(await call("save_settings", { settings: next }));
+      if (!quiet) notify("Đã lưu cài đặt.");
+    } catch (e) {
+      setData((old) => ({ ...old, settings: previous }));
+      notify(e, true);
+    }
+  };
+  // Work that closing the window or quitting would interrupt.
+  const busy = () =>
+    sessionsRef.current.some((s) =>
+      ["connected", "connecting"].includes(s.status),
+    ) ||
+    transfersRef.current.some((t) => ["queued", "running"].includes(t.status));
   useEffect(() => {
     if (toast) {
       const timer = setTimeout(() => setToast(null), 6500);
@@ -207,12 +161,37 @@ function App() {
       register("host-verification-finished", (payload) =>
         setVerification((old) => old.filter((item) => item.id !== payload.id)),
       ),
+      register("forward", (payload) =>
+        setForwards((old) => ({ ...old, [payload.id]: payload })),
+      ),
+      call("tray_available").then(setTrayReady),
+      call("list_forwards").then((list) =>
+        setForwards(Object.fromEntries(list.map((f) => [f.id, f]))),
+      ),
+      register("auth-prompt", (payload) =>
+        setPrompts((old) => [...old, payload]),
+      ),
+      register("auth-prompt-finished", (payload) =>
+        setPrompts((old) => old.filter((item) => item.id !== payload.id)),
+      ),
       register("transfer", (payload) =>
         setTransfers((old) => {
           const index = old.findIndex((t) => t.id === payload.id);
           return index < 0
             ? [payload, ...old]
-            : old.map((t) => (t.id === payload.id ? payload : t));
+            : old.map((t) =>
+                t.id === payload.id
+                  ? {
+                      ...t,
+                      ...payload,
+                      // Final events do not repeat progress; keep the last known numbers.
+                      bytes: payload.bytes || t.bytes,
+                      total: payload.total || t.total,
+                      error: payload.error,
+                      resumable: payload.resumable,
+                    }
+                  : t,
+              );
         }),
       ),
     ])
@@ -222,14 +201,13 @@ function App() {
       .catch((e) => notify(e, true));
     getCurrentWindow()
       .onCloseRequested(async (event) => {
-        if (
-          sessionsRef.current.some((s) =>
-            ["connected", "connecting"].includes(s.status),
-          ) ||
-          transfersRef.current.some((t) =>
-            ["queued", "running"].includes(t.status),
-          )
-        ) {
+        if (settingsRef.current.closeToTray && trayRef.current) {
+          // Sessions keep running; the tray icon shows the window again.
+          event.preventDefault();
+          await getCurrentWindow().hide();
+          return;
+        }
+        if (settingsRef.current.confirmClose && busy()) {
           event.preventDefault();
           if (
             await confirm(
@@ -241,6 +219,19 @@ function App() {
         }
       })
       .then((off) => (disposed ? off() : removers.push(off)));
+    // "Thoát SSH Studio" in the tray menu.
+    register("quit-requested", async () => {
+      if (
+        settingsRef.current.confirmClose &&
+        busy() &&
+        !(await confirm(
+          "Các phiên terminal sẽ đóng và file đang truyền sẽ bị hủy. Bạn muốn thoát?",
+          { title: "Thoát SSH Studio", kind: "warning" },
+        ))
+      )
+        return;
+      await call("quit_app");
+    });
     return () => {
       disposed = true;
       removers.forEach((off) => off());
@@ -252,17 +243,32 @@ function App() {
     setActive(id);
     setPage("session");
   };
-  const begin = async (host, password = "") => {
-    const id = uid();
-    setSessions((old) => [
-      ...old,
-      { id, host, status: "connecting", view: "terminal" },
-    ]);
+  const begin = async (host, reuseId = null) => {
+    const id = reuseId || uid();
+    // Reconnect keeps the existing tab (and its terminal scrollback) instead of opening a new one.
+    setSessions((old) =>
+      reuseId && old.some((s) => s.id === reuseId)
+        ? old.map((s) =>
+            s.id === reuseId
+              ? { ...s, host, status: "connecting", error: undefined }
+              : s,
+          )
+        : [
+            ...old,
+            {
+              id,
+              host,
+              status: "connecting",
+              view: settingsRef.current.defaultView,
+            },
+          ],
+    );
     setActive(id);
     setPage("session");
     setModal(null);
     try {
-      await call("connect", { id, hostId: host.id, password });
+      // Passwords / OTP are asked for through "auth-prompt" events while connecting.
+      await call("connect", { id, hostId: host.id });
       setData(await call("snapshot"));
     } catch (e) {
       setSessions((old) =>
@@ -273,10 +279,11 @@ function App() {
       notify(e, true);
     }
   };
-  const connectHost = (host) => {
+  const connectHost = (host, reuseId = null) => {
     if (!ready) return notify("Backend chưa sẵn sàng.", true);
-    if (host.auth === "password") setModal({ type: "password", host });
-    else begin(host);
+    // Use the latest saved settings of the server when reconnecting.
+    host = data.hosts.find((h) => h.id === host.id) || host;
+    begin(host, reuseId);
   };
   const closeSession = async (id) => {
     const item = sessions.find((s) => s.id === id);
@@ -284,6 +291,7 @@ function App() {
       return notify("Chờ kết nối hoàn tất hoặc từ chối xác nhận fingerprint.");
     if (
       item?.status === "connected" &&
+      settings.confirmClose &&
       !(await confirm(
         "Đóng phiên terminal này? Các lệnh đang chạy có thể dừng.",
         { title: "Ngắt kết nối", kind: "warning" },
@@ -292,6 +300,7 @@ function App() {
       return;
     await run(async () => {
       await call("disconnect", { id });
+      if (item) closedHosts.current.push(item.host.id);
       setSessions((old) => old.filter((s) => s.id !== id));
       if (active === id) {
         const next = sessions.find((s) => s.id !== id);
@@ -300,6 +309,56 @@ function App() {
       }
     });
   };
+  useEffect(() => {
+    if (desktop) call("set_tray_sessions", { connected }).catch(() => {});
+  }, [connected]);
+  const onShortcut = useRef();
+  onShortcut.current = (e) => {
+    if (document.querySelector(".modal-backdrop")) return;
+    const hit = shortcut(e, !!e.target.closest?.(".xterm"));
+    if (!hit) return;
+    const { action } = hit;
+    const onSession = page === "session" && current;
+    if (action === "nextTab" || action === "prevTab") {
+      const next = cycleTab(
+        sessions.map((s) => s.id),
+        onSession ? active : null,
+        action === "nextTab" ? 1 : -1,
+      );
+      if (next) selectSession(next);
+    } else if (action === "tab") {
+      if (sessions[hit.index]) selectSession(sessions[hit.index].id);
+    } else if (action === "closeSession") {
+      if (onSession) closeSession(active);
+    } else if (action === "reopen") {
+      let host;
+      while (!host && closedHosts.current.length) {
+        const id = closedHosts.current.pop();
+        host = data.hosts.find((h) => h.id === id);
+      }
+      if (host) connectHost(host);
+      else notify("Chưa có phiên nào vừa đóng để mở lại.");
+    } else if (action.startsWith("zoom")) {
+      const fontSize = zoomFont(settings.fontSize, action);
+      if (fontSize !== settings.fontSize)
+        saveSettings({ ...settings, fontSize }, true);
+    } else if (action === "findServer") {
+      setPage("hosts");
+      requestAnimationFrame(() => searchBox.current?.select());
+    } else if (action === "search") {
+      if (onSession && !["files", "ports"].includes(current.view))
+        window.dispatchEvent(
+          new CustomEvent("terminal-search", { detail: active }),
+        );
+      else return;
+    }
+    e.preventDefault();
+  };
+  useEffect(() => {
+    const handler = (e) => onShortcut.current(e);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
   const filtered = data.hosts.filter(
     (h) =>
       (group === "all" || h.group === group) &&
@@ -308,6 +367,10 @@ function App() {
         .includes(search.toLowerCase()),
   );
   const groups = [...new Set(data.hosts.map((h) => h.group))];
+  // A group filter whose last server was deleted or moved falls back to "all".
+  useEffect(() => {
+    if (group !== "all" && !groups.includes(group)) setGroup("all");
+  }, [data.hosts, group]);
   const onDeleteHost = (host) =>
     run(async () => {
       if (
@@ -363,6 +426,13 @@ function App() {
         >
           <ShieldCheck size={18} />
           Known Hosts
+        </button>
+        <button
+          className={`nav-item ${page === "settings" ? "active" : ""}`}
+          onClick={() => setPage("settings")}
+        >
+          <SettingsIcon size={18} />
+          Cài đặt
         </button>
         <div className="nav-label group-label">NHÓM SERVER</div>
         {groups.length ? (
@@ -428,7 +498,9 @@ function App() {
                   ? "SSH Keys"
                   : page === "known"
                     ? "Known Hosts"
-                    : current?.host.name || "Terminal"}
+                    : page === "settings"
+                      ? "Cài đặt"
+                      : current?.host.name || "Terminal"}
             </strong>
           </div>
           <div className="topbar-right">
@@ -437,7 +509,7 @@ function App() {
               {connected} kết nối
             </span>
             <span className="os-label">
-              <Monitor size={14} /> Windows
+              <Monitor size={14} /> {osLabel(data.os)}
             </span>
           </div>
         </header>
@@ -504,11 +576,26 @@ function App() {
                   nối SSH qua ứng dụng Tauri.
                 </div>
               )}
+              {data.recovered && !recoveredSeen && (
+                <div className="notice error">
+                  <span>
+                    File cấu hình bị hỏng nên SSH Studio đã khởi động với
+                    workspace trống. Bản cũ được giữ lại tại{" "}
+                    <code>{data.recovered}</code> trong thư mục dữ liệu ứng dụng
+                    để khôi phục thủ công.
+                  </span>
+                  <Button onClick={() => setRecoveredSeen(true)}>
+                    Đã hiểu
+                  </Button>
+                </div>
+              )}
               <div className="toolbar">
                 <div className="search-box">
                   <Search size={18} />
                   <input
+                    ref={searchBox}
                     aria-label="Tìm server"
+                    title="Ctrl+K"
                     placeholder="Tìm theo tên, IP hoặc username…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
@@ -631,7 +718,11 @@ function App() {
                               ) : (
                                 <LockKeyhole size={14} />
                               )}{" "}
-                              {host.auth === "key" ? "SSH key" : "Password"}
+                              {authLabels[host.auth] || "Password"}
+                              {host.jumpHostId && " · Jump"}
+                              {host.proxy?.kind &&
+                                host.proxy.kind !== "none" &&
+                                ` · ${host.proxy.kind.toUpperCase()}`}
                             </span>
                           </div>
                           <div className="server-card-bottom">
@@ -677,6 +768,18 @@ function App() {
                 </div>
                 <div className="actions">
                   <Button
+                    icon={ArchiveRestore}
+                    onClick={() => setModal({ type: "restore" })}
+                  >
+                    Khôi phục
+                  </Button>
+                  <Button
+                    icon={DatabaseBackup}
+                    onClick={() => setModal({ type: "backup" })}
+                  >
+                    Sao lưu
+                  </Button>
+                  <Button
                     icon={Upload}
                     onClick={() => setModal({ type: "key", mode: "import" })}
                   >
@@ -697,7 +800,8 @@ function App() {
                   <strong>Private key được mã hóa trên máy</strong>
                   <p>
                     Khóa bảo vệ nằm trong Windows Credential Manager. Chỉ public
-                    key được hiển thị và sao chép.
+                    key được hiển thị; private key chỉ rời vault khi bạn chủ
+                    động xuất hoặc sao lưu (có mật khẩu).
                   </p>
                 </div>
               </div>
@@ -733,6 +837,11 @@ function App() {
                         Public key
                       </Button>
                       <IconButton
+                        icon={FileKey}
+                        title="Xuất private key"
+                        onClick={() => setModal({ type: "export", key })}
+                      />
+                      <IconButton
                         icon={Trash2}
                         title="Xóa key"
                         onClick={() =>
@@ -755,8 +864,8 @@ function App() {
                   <KeyRound size={44} />
                   <h2>Chìa khóa cho những kết nối của bạn</h2>
                   <p>
-                    Nhập private key OpenSSH / PEM đang dùng hoặc tạo key
-                    Ed25519 mới.
+                    Nhập private key OpenSSH / PEM / PuTTY .ppk đang dùng hoặc
+                    tạo key Ed25519 mới.
                   </p>
                   <Button
                     icon={Upload}
@@ -819,6 +928,13 @@ function App() {
               )}
             </section>
           )}
+          {page === "settings" && (
+            <SettingsPage
+              settings={settings}
+              save={saveSettings}
+              trayReady={trayReady || !desktop}
+            />
+          )}
           {sessions.map((session) => (
             <SessionPane
               key={session.id}
@@ -828,7 +944,19 @@ function App() {
               notify={notify}
               transfers={transfers}
               showQueue={() => setShowTransfers(true)}
-              reconnect={() => connectHost(session.host)}
+              reconnect={() => connectHost(session.host, session.id)}
+              forwards={forwards}
+              settings={settings}
+              savedHost={data.hosts.find((h) => h.id === session.host.id)}
+              saveForwards={async (list) => {
+                const host = data.hosts.find((h) => h.id === session.host.id);
+                if (!host) throw "Server đã bị xóa khỏi danh sách.";
+                setData(
+                  await call("save_host", {
+                    host: { ...host, forwards: list },
+                  }),
+                );
+              }}
               setView={(view) =>
                 setSessions((old) =>
                   old.map((s) => (s.id === session.id ? { ...s, view } : s)),
@@ -838,82 +966,30 @@ function App() {
           ))}
         </div>
         {showTransfers && (
-          <section className="transfer-panel">
-            <div className="transfer-heading">
-              <strong>
-                <ArrowUp size={15} />
-                <ArrowDown size={15} />
-                Truyền file <span>{pending} đang chờ / đang truyền</span>
-              </strong>
-              <div className="actions">
-                <button
-                  className="text-button"
-                  onClick={() =>
-                    setTransfers((old) =>
-                      old.filter((t) =>
-                        ["running", "queued"].includes(t.status),
-                      ),
-                    )
-                  }
-                >
-                  Dọn lịch sử
-                </button>
-                <IconButton
-                  title="Thu gọn"
-                  icon={ChevronDown}
-                  onClick={() => setShowTransfers(false)}
-                />
-              </div>
-            </div>
-            <div className="transfer-list">
-              {transfers.length ? (
-                transfers.map((t) => (
-                  <div className="transfer-row" key={t.id}>
-                    {t.direction === "upload" ? (
-                      <Upload size={17} />
-                    ) : (
-                      <Download size={17} />
-                    )}
-                    <div className="transfer-name">
-                      <strong>{t.name}</strong>
-                      <small>
-                        {t.error || `${size(t.bytes)} / ${size(t.total)}`}
-                      </small>
-                    </div>
-                    <div className="progress">
-                      <div
-                        style={{
-                          width: `${t.total ? Math.min(100, (t.bytes / t.total) * 100) : 0}%`,
-                        }}
-                      />
-                    </div>
-                    <span className={`transfer-status ${t.status}`}>
-                      {statuses[t.status]}
-                    </span>
-                    {["running", "queued"].includes(t.status) ? (
-                      <IconButton
-                        icon={X}
-                        title="Hủy truyền"
-                        onClick={() =>
-                          run(() => call("cancel_transfer", { id: t.id }))
-                        }
-                      />
-                    ) : (
-                      <span className="icon-placeholder" />
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="empty-inline">
-                  Chưa có file nào được truyền trong phiên làm việc này.
-                </div>
-              )}
-            </div>
-          </section>
+          <TransferPanel
+            transfers={transfers}
+            close={() => setShowTransfers(false)}
+            clear={() =>
+              setTransfers((old) =>
+                old.filter((t) => ["running", "queued"].includes(t.status)),
+              )
+            }
+            cancel={(t) => run(() => call("cancel_transfer", { id: t.id }))}
+            retry={(t) => {
+              if (
+                !sessions.some(
+                  (s) => s.id === t.sessionId && s.status === "connected",
+                )
+              )
+                return notify("Phiên của tác vụ này chưa kết nối lại.", true);
+              run(() => call("transfer", { request: retryRequest(t) }));
+            }}
+          />
         )}
         <footer className="statusbar">
           <span>
-            <img src={statusbarIcon} width="16" height="16" alt="" /> SSH / SFTP · Mã hóa đầu cuối
+            <img src={statusbarIcon} width="16" height="16" alt="" /> SSH / SFTP
+            · Mã hóa đầu cuối
           </span>
           <button onClick={() => setShowTransfers(!showTransfers)}>
             <Upload size={13} />
@@ -938,6 +1014,7 @@ function App() {
       {modal?.type === "host" && (
         <HostModal
           host={modal.host}
+          hosts={data.hosts}
           keys={data.keys}
           close={() => setModal(null)}
           save={(host) =>
@@ -949,11 +1026,24 @@ function App() {
           }
         />
       )}
-      {modal?.type === "password" && (
-        <PasswordModal
-          host={modal.host}
-          close={() => setModal(null)}
-          connect={(password) => begin(modal.host, password)}
+      {prompts.length > 0 && verification.length === 0 && (
+        <AuthPromptModal
+          prompt={prompts[0]}
+          label={(() => {
+            const host = sessions.find(
+              (s) => s.id === prompts[0].sessionId,
+            )?.host;
+            return host
+              ? `Phiên ${host.name} · ${host.username}@${host.host}:${host.port}`
+              : "";
+          })()}
+          respond={(answers) =>
+            run(async () => {
+              const id = prompts[0].id;
+              setPrompts((old) => old.filter((item) => item.id !== id));
+              await call("auth_respond", { id, answers });
+            })
+          }
         />
       )}
       {modal?.type === "key" && (
@@ -971,6 +1061,37 @@ function App() {
           }}
         />
       )}
+      {modal?.type === "export" && (
+        <ExportKeyModal
+          keyItem={modal.key}
+          close={() => setModal(null)}
+          done={(path) => {
+            setModal(null);
+            notify(`Đã xuất private key ra ${path}.`);
+          }}
+        />
+      )}
+      {modal?.type === "backup" && (
+        <BackupModal
+          close={() => setModal(null)}
+          done={(counts, path) => {
+            setModal(null);
+            notify(
+              `Đã sao lưu ${counts.hosts} server, ${counts.keys} key, ${counts.knownHosts} known host vào ${path}.`,
+            );
+          }}
+        />
+      )}
+      {modal?.type === "restore" && (
+        <RestoreModal
+          close={() => setModal(null)}
+          done={(result) => {
+            setData(result.snapshot);
+            setModal(null);
+            notify(`Đã khôi phục: ${restoreSummary(result.report)}.`);
+          }}
+        />
+      )}
       {verification.length > 0 && (
         <Modal
           title="Xác nhận danh tính server"
@@ -981,7 +1102,9 @@ function App() {
                 id: verification[0].id,
                 accepted: false,
               });
-              setVerification((old) => old.filter((item) => item.id !== verification[0].id));
+              setVerification((old) =>
+                old.filter((item) => item.id !== verification[0].id),
+              );
             })
           }
         >
@@ -1002,7 +1125,9 @@ function App() {
                     id: verification[0].id,
                     accepted: false,
                   });
-                  setVerification((old) => old.filter((item) => item.id !== verification[0].id));
+                  setVerification((old) =>
+                    old.filter((item) => item.id !== verification[0].id),
+                  );
                 })
               }
             >
@@ -1017,7 +1142,9 @@ function App() {
                     id: verification[0].id,
                     accepted: true,
                   });
-                  setVerification((old) => old.filter((item) => item.id !== verification[0].id));
+                  setVerification((old) =>
+                    old.filter((item) => item.id !== verification[0].id),
+                  );
                 })
               }
             >
@@ -1027,798 +1154,6 @@ function App() {
         </Modal>
       )}
     </div>
-  );
-}
-
-function HostModal({ host, keys, close, save }) {
-  const [form, setForm] = useState(
-    host || {
-      id: uid(),
-      name: "",
-      host: "",
-      port: 22,
-      username: "root",
-      group: "Servers",
-      auth: "password",
-      keyId: "",
-    },
-  );
-  const [busy, setBusy] = useState(false);
-  const field = (key) => ({
-    value: form[key],
-    onChange: (e) => setForm({ ...form, [key]: e.target.value }),
-  });
-  return (
-    <Modal
-      title={host ? "Chỉnh sửa server" : "Thêm server"}
-      subtitle="Lưu cấu hình và kết nối bất cứ khi nào bạn cần."
-      close={close}
-    >
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          await save({
-            ...form,
-            port: Number(form.port),
-            group: form.group.trim() || "Servers",
-          });
-          setBusy(false);
-        }}
-      >
-        <div className="form-body">
-          <Field
-            label="Tên hiển thị"
-            placeholder="Ví dụ: Production API"
-            required
-            autoFocus
-            {...field("name")}
-          />
-          <div className="form-row address-row">
-            <Field
-              label="Địa chỉ server"
-              placeholder="192.168.1.10 hoặc server.example.com"
-              required
-              {...field("host")}
-            />
-            <Field
-              label="Port"
-              type="number"
-              min="1"
-              max="65535"
-              required
-              {...field("port")}
-            />
-          </div>
-          <div className="form-row">
-            <Field label="Username" required {...field("username")} />
-            <Field
-              label="Nhóm"
-              placeholder="Production, Staging…"
-              {...field("group")}
-            />
-          </div>
-          <Field label="Phương thức xác thực">
-            <div className="segmented">
-              <button
-                type="button"
-                className={form.auth === "password" ? "selected" : ""}
-                onClick={() => setForm({ ...form, auth: "password" })}
-              >
-                <LockKeyhole size={16} />
-                Password
-              </button>
-              <button
-                type="button"
-                className={form.auth === "key" ? "selected" : ""}
-                onClick={() => setForm({ ...form, auth: "key" })}
-              >
-                <KeyRound size={16} />
-                SSH Key
-              </button>
-            </div>
-          </Field>
-          {form.auth === "key" ? (
-            <Field label="SSH key">
-              <select required {...field("keyId")}>
-                <option value="">Chọn key từ thư viện</option>
-                {keys.map((k) => (
-                  <option key={k.id} value={k.id}>
-                    {k.name} · {k.algorithm}
-                  </option>
-                ))}
-              </select>
-              {!keys.length && (
-                <small>
-                  Đóng hộp thoại và vào SSH Keys để nhập hoặc tạo key trước.
-                </small>
-              )}
-            </Field>
-          ) : (
-            <p className="form-note">
-              <LockKeyhole size={16} />
-              Password được hỏi khi kết nối và không lưu xuống ổ đĩa.
-            </p>
-          )}
-        </div>
-        <div className="modal-footer">
-          <Button type="button" onClick={close}>
-            Hủy
-          </Button>
-          <Button
-            variant="primary"
-            icon={busy ? LoaderCircle : Check}
-            disabled={busy}
-          >
-            Lưu server
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-function PasswordModal({ host, close, connect }) {
-  const [password, setPassword] = useState("");
-  return (
-    <Modal
-      title={`Kết nối ${host.name}`}
-      subtitle={`${host.username}@${host.host}:${host.port}`}
-      close={close}
-    >
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          connect(password);
-          setPassword("");
-        }}
-      >
-        <div className="form-body">
-          <Field
-            autoFocus
-            label="Password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="off"
-          />
-          <p className="form-note">
-            Password chỉ được dùng cho phiên kết nối này.
-          </p>
-        </div>
-        <div className="modal-footer">
-          <Button type="button" onClick={close}>
-            Hủy
-          </Button>
-          <Button variant="primary" icon={Terminal}>
-            Kết nối
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-function KeyModal({ mode, close, save }) {
-  const [name, setName] = useState("");
-  const [path, setPath] = useState("");
-  const [passphrase, setPassphrase] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  return (
-    <Modal
-      title={mode === "generate" ? "Tạo SSH key" : "Nhập SSH key"}
-      subtitle={
-        mode === "generate"
-          ? "Tạo key Ed25519 và bảo vệ bằng kho mã hóa của hệ điều hành."
-          : "Hỗ trợ OpenSSH / PEM. Với .ppk, xuất OpenSSH bằng PuTTYgen."
-      }
-      close={busy ? () => {} : close}
-    >
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError("");
-          try {
-            await save({ name, path, passphrase });
-          } catch (e) {
-            setError(cleanError(e));
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <div className="form-body">
-          <Field
-            label="Tên key"
-            placeholder="Ví dụ: Work laptop"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          {mode === "import" && (
-            <>
-              <Field label="Private key">
-                <Button
-                  type="button"
-                  icon={FolderOpen}
-                  onClick={async () => {
-                    try {
-                      const p = await open({
-                        multiple: false,
-                        directory: false,
-                        title: "Chọn private key OpenSSH / PEM",
-                      });
-                      if (p) setPath(p);
-                    } catch (e) {
-                      setError(cleanError(e));
-                    }
-                  }}
-                >
-                  {path || "Chọn file private key"}
-                </Button>
-              </Field>
-              <Field
-                label="Passphrase (nếu có)"
-                type="password"
-                value={passphrase}
-                onChange={(e) => setPassphrase(e.target.value)}
-                autoComplete="off"
-              />
-            </>
-          )}
-          <p className="form-note">
-            <ShieldCheck size={18} />
-            Private key sẽ được mã hóa bằng AES-256-GCM, khóa bảo vệ lưu trong
-            Windows Credential Manager.
-          </p>
-          {error && <div className="inline-error">{error}</div>}
-        </div>
-        <div className="modal-footer">
-          <Button type="button" disabled={busy} onClick={close}>
-            Hủy
-          </Button>
-          <Button
-            variant="primary"
-            icon={busy ? LoaderCircle : KeyRound}
-            disabled={busy || (mode === "import" && !path)}
-          >
-            {busy ? "Đang lưu…" : mode === "generate" ? "Tạo key" : "Nhập key"}
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function SessionPane({
-  session,
-  visible,
-  home,
-  notify,
-  transfers,
-  showQueue,
-  reconnect,
-  setView,
-}) {
-  return (
-    <section
-      className="session-pane"
-      style={{ display: visible ? "flex" : "none" }}
-    >
-      <div className="session-toolbar">
-        <div className="segmented">
-          <button
-            className={session.view === "terminal" ? "selected" : ""}
-            onClick={() => setView("terminal")}
-          >
-            <Terminal size={16} />
-            Terminal
-          </button>
-          <button
-            className={session.view === "files" ? "selected" : ""}
-            onClick={() => setView("files")}
-          >
-            <FolderOpen size={16} />
-            Files
-          </button>
-          <button
-            className={session.view === "split" ? "selected" : ""}
-            onClick={() => setView("split")}
-          >
-            <LayoutGrid size={16} />
-            Chia đôi
-          </button>
-        </div>
-        <span className="session-address mono">
-          {session.host.username}@{session.host.host}:{session.host.port}
-        </span>
-        <span className={`session-state ${session.status}`}>
-          <i className={`status-dot ${session.status}`} />
-          {statuses[session.status]}
-        </span>
-      </div>
-      {session.status === "error" && (
-        <div className="notice error">
-          {session.error}
-          <Button icon={RefreshCw} onClick={reconnect}>
-            Kết nối lại
-          </Button>
-        </div>
-      )}
-      {session.status === "closed" && (
-        <div className="notice">
-          Phiên đã kết thúc.
-          <Button icon={RefreshCw} onClick={reconnect}>
-            Kết nối lại
-          </Button>
-        </div>
-      )}
-      <div className={`session-body ${session.view}`}>
-        <div
-          className="terminal-wrap"
-          style={{ display: session.view === "files" ? "none" : "flex" }}
-        >
-          <div className="terminal-caption">
-            <Terminal size={13} />
-            {session.host.name}
-            <span>SSH · xterm-256color</span>
-          </div>
-          <TerminalView
-            id={session.id}
-            visible={visible && session.view !== "files"}
-            status={session.status}
-          />
-        </div>
-        {session.view !== "terminal" && (
-          <FileManager
-            session={session}
-            home={home}
-            notify={notify}
-            transfers={transfers}
-            showQueue={showQueue}
-          />
-        )}
-      </div>
-    </section>
-  );
-}
-function TerminalView({ id, visible, status }) {
-  const container = useRef();
-  const term = useRef();
-  const fit = useRef();
-  const statusRef = useRef(status);
-  statusRef.current = status;
-  useEffect(() => {
-    let disposed = false;
-    let off;
-    const terminal = new XTerminal({
-      fontFamily: "Cascadia Code, Consolas, monospace",
-      fontSize: 14,
-      lineHeight: 1.3,
-      cursorBlink: true,
-      scrollback: 10000,
-      theme: {
-        background: "#0b1016",
-        foreground: "#dce5ed",
-        cursor: "#7fe4cb",
-        selectionBackground: "#284b4f",
-        black: "#1d2631",
-        red: "#ee8087",
-        green: "#80dbb4",
-        yellow: "#edcc87",
-        blue: "#89b8ef",
-        magenta: "#ba9ff0",
-        cyan: "#7cd8de",
-        white: "#dce5ed",
-      },
-    });
-    const addon = new FitAddon();
-    terminal.loadAddon(addon);
-    terminal.open(container.current);
-    term.current = terminal;
-    fit.current = addon;
-    terminal.writeln(
-      "\x1b[38;2;112;217;190mSSH Studio\x1b[0m  ·  Đang mở phiên kết nối…\r\n",
-    );
-    if (desktop)
-      listen("terminal", ({ payload }) => {
-        if (payload.id === id) terminal.write(new Uint8Array(payload.data));
-      }).then((fn) => {
-        if (disposed) fn();
-        else off = fn;
-      });
-    const input = terminal.onData((data) => {
-      if (statusRef.current === "connected")
-        call("terminal_input", { id, data }).catch(() => {});
-    });
-    const resize = terminal.onResize(({ cols, rows }) => {
-      if (statusRef.current === "connected")
-        call("terminal_resize", { id, cols, rows }).catch(() => {});
-    });
-    const observer = new ResizeObserver(() => {
-      if (container.current?.offsetWidth)
-        try {
-          addon.fit();
-        } catch {}
-    });
-    observer.observe(container.current);
-    return () => {
-      disposed = true;
-      off?.();
-      observer.disconnect();
-      input.dispose();
-      resize.dispose();
-      terminal.dispose();
-    };
-  }, [id]);
-  useEffect(() => {
-    if (visible && term.current) {
-      requestAnimationFrame(() => {
-        try {
-          fit.current.fit();
-          term.current.focus();
-          if (status === "connected")
-            call("terminal_resize", {
-              id,
-              cols: term.current.cols,
-              rows: term.current.rows,
-            }).catch(() => {});
-        } catch {}
-      });
-    }
-  }, [visible, status]);
-  return <div className="terminal-container" ref={container} />;
-}
-
-function FileManager({ session, home, notify, transfers, showQueue }) {
-  const [local, setLocal] = useState({ path: home, parent: home, files: [] });
-  const [remote, setRemote] = useState({ path: ".", parent: ".", files: [] });
-  const [selected, setSelected] = useState({ local: null, remote: null });
-  const [loading, setLoading] = useState({});
-  const [errors, setErrors] = useState({});
-  const [dialog, setDialog] = useState(null);
-  const paths = useRef({ local: home, remote: "." });
-  const revisions = useRef({ local: 0, remote: 0 });
-  const load = useCallback(
-    async (side, directory) => {
-      const version = ++revisions.current[side];
-      setLoading((old) => ({ ...old, [side]: true }));
-      try {
-        const result = await call("list_files", {
-          sessionId: side === "remote" ? session.id : null,
-          directory,
-        });
-        if (version !== revisions.current[side]) return;
-        (side === "local" ? setLocal : setRemote)(result);
-        paths.current[side] = result.path;
-        setSelected((old) => ({ ...old, [side]: null }));
-        setErrors((old) => ({ ...old, [side]: "" }));
-      } catch (e) {
-        if (version === revisions.current[side])
-          setErrors((old) => ({ ...old, [side]: cleanError(e) }));
-      } finally {
-        if (version === revisions.current[side])
-          setLoading((old) => ({ ...old, [side]: false }));
-      }
-    },
-    [session.id],
-  );
-  useEffect(() => {
-    load("local", home);
-  }, [home]);
-  useEffect(() => {
-    if (session.status === "connected") load("remote", ".");
-  }, [session.status]);
-  const completed = transfers.filter(
-    (t) => t.sessionId === session.id && t.status === "completed",
-  ).length;
-  useEffect(() => {
-    if (completed) {
-      load("local", paths.current.local);
-      load("remote", paths.current.remote);
-    }
-  }, [completed]);
-  const action = async (side, type, value) => {
-    try {
-      const entry = selected[side];
-      await call("file_action", {
-        sessionId: side === "remote" ? session.id : null,
-        directory: paths.current[side],
-        name: type === "mkdir" ? value : entry.name,
-        newName: type === "rename" ? value : null,
-        action: type,
-        isDirectory: entry?.directory || false,
-      });
-      setDialog(null);
-      await load(side, paths.current[side]);
-    } catch (e) {
-      notify(e, true);
-    }
-  };
-  const transfer = async (side) => {
-    const entry = selected[side];
-    if (!entry || entry.directory || entry.link)
-      return notify(
-        "Chọn một file thường để truyền. Với thư mục, hãy nén trước.",
-        true,
-      );
-    try {
-      await call("transfer", {
-        request: {
-          id: uid(),
-          sessionId: session.id,
-          direction: side === "local" ? "upload" : "download",
-          localDirectory: local.path,
-          remoteDirectory: remote.path,
-          name: entry.name,
-        },
-      });
-      showQueue();
-    } catch (e) {
-      notify(e, true);
-    }
-  };
-  return (
-    <div className="file-manager">
-      <div className="file-hint">
-        <FolderOpen size={14} />
-        Hai khung local / remote
-        <span>Nhấp đúp thư mục để mở · Chọn file để truyền</span>
-      </div>
-      <div className="file-panes">
-        {["local", "remote"].map((side) => {
-          const listing = side === "local" ? local : remote;
-          const entry = selected[side];
-          const disabled = side === "remote" && session.status !== "connected";
-          return (
-            <FilePane
-              key={side}
-              side={side}
-              listing={listing}
-              selected={entry}
-              loading={loading[side]}
-              error={errors[side]}
-              disabled={disabled}
-              load={(directory) => load(side, directory)}
-              select={(entry) =>
-                setSelected((old) => ({ ...old, [side]: entry }))
-              }
-              create={() =>
-                setDialog({
-                  side,
-                  type: "mkdir",
-                  title: "Tạo thư mục",
-                  value: "",
-                })
-              }
-              rename={() =>
-                setDialog({
-                  side,
-                  type: "rename",
-                  title: "Đổi tên",
-                  value: entry.name,
-                })
-              }
-              remove={async () => {
-                if (
-                  await confirm(
-                    `Xóa “${entry.name}”? Thư mục phải rỗng. Không thể hoàn tác.`,
-                    { title: "Xóa file", kind: "warning" },
-                  )
-                )
-                  action(side, "delete");
-              }}
-              transfer={() => transfer(side)}
-              canTransfer={session.status === "connected" && !errors.remote}
-            />
-          );
-        })}
-      </div>
-      {dialog && (
-        <NameModal
-          {...dialog}
-          close={() => setDialog(null)}
-          save={(value) => action(dialog.side, dialog.type, value)}
-        />
-      )}
-    </div>
-  );
-}
-function FilePane({
-  side,
-  listing,
-  selected,
-  loading,
-  error,
-  disabled,
-  load,
-  select,
-  create,
-  rename,
-  remove,
-  transfer,
-  canTransfer,
-}) {
-  const [address, setAddress] = useState(listing.path);
-  useEffect(() => setAddress(listing.path), [listing.path]);
-  const join = (name) =>
-    side === "remote"
-      ? listing.path.replace(/\/$/, "") + "/" + name
-      : listing.path.replace(/[\\/]$/, "") + "\\" + name;
-  return (
-    <section className="file-pane">
-      <div className="file-pane-title">
-        <span>
-          {side === "local" ? <Monitor size={17} /> : <Server size={17} />}{" "}
-          {side === "local" ? "Máy của bạn" : "Remote server"}
-        </span>
-        <Button
-          disabled={
-            !selected || selected.directory || selected.link || !canTransfer
-          }
-          icon={side === "local" ? Upload : Download}
-          onClick={transfer}
-        >
-          {side === "local" ? "Upload" : "Download"}
-        </Button>
-      </div>
-      <div className="pathbar">
-        <IconButton
-          icon={ArrowUp}
-          title="Thư mục cha"
-          disabled={disabled || loading}
-          onClick={() => load(listing.parent)}
-        />
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            load(address);
-          }}
-        >
-          <Folder size={14} />
-          <input
-            aria-label={
-              side === "local" ? "Đường dẫn local" : "Đường dẫn remote"
-            }
-            value={address}
-            disabled={disabled}
-            onChange={(e) => setAddress(e.target.value)}
-          />
-        </form>
-        {side === "local" && (
-          <IconButton
-            icon={FolderOpen}
-            title="Chọn thư mục local"
-            onClick={async () => {
-              const directory = await open({
-                directory: true,
-                multiple: false,
-              });
-              if (directory) load(directory);
-            }}
-          />
-        )}
-        <IconButton
-          icon={RefreshCw}
-          title="Làm mới"
-          disabled={disabled || loading}
-          onClick={() => load(listing.path)}
-        />
-      </div>
-      <div className="file-actions">
-        <Button icon={FolderPlus} disabled={disabled} onClick={create}>
-          Thư mục
-        </Button>
-        <IconButton
-          icon={Pencil}
-          title="Đổi tên"
-          disabled={disabled || !selected}
-          onClick={rename}
-        />
-        <IconButton
-          icon={Trash2}
-          title="Xóa"
-          disabled={disabled || !selected}
-          onClick={remove}
-        />
-        <span>{listing.files.length} mục</span>
-      </div>
-      <div className="file-table-wrap">
-        {disabled ? (
-          <div className="empty-inline">Kết nối server để duyệt file.</div>
-        ) : loading ? (
-          <div className="empty-inline">
-            <LoaderCircle size={20} className="spin" />
-            Đang tải thư mục…
-          </div>
-        ) : error ? (
-          <div className="file-error">{error}</div>
-        ) : (
-          <table className="file-table">
-            <thead>
-              <tr>
-                <th>Tên</th>
-                <th>Kích thước</th>
-                <th>Sửa đổi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {listing.files.map((file) => (
-                <tr
-                  key={file.name}
-                  tabIndex={0}
-                  aria-selected={selected?.name === file.name}
-                  className={selected?.name === file.name ? "selected" : ""}
-                  onClick={() => select(file)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      select(file);
-                      if (file.directory || file.link) load(join(file.name));
-                    }
-                  }}
-                  onDoubleClick={() => {
-                    if (file.directory || file.link) load(join(file.name));
-                  }}
-                >
-                  <td>
-                    {file.directory ? (
-                      <Folder size={16} className="folder-icon" />
-                    ) : file.link ? (
-                      <ExternalLink size={16} />
-                    ) : (
-                      <File size={16} />
-                    )}
-                    <span>{file.name}</span>
-                  </td>
-                  <td>{file.directory ? "—" : size(file.size)}</td>
-                  <td>
-                    {file.modified
-                      ? new Date(file.modified).toLocaleDateString("vi-VN")
-                      : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {!loading && !error && !disabled && !listing.files.length && (
-          <div className="empty-inline">Thư mục trống</div>
-        )}
-      </div>
-    </section>
-  );
-}
-function NameModal({ title, value: initial, close, save }) {
-  const [value, setValue] = useState(initial);
-  return (
-    <Modal
-      title={title}
-      subtitle="Nhập tên, không bao gồm đường dẫn."
-      close={close}
-    >
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          save(value);
-        }}
-      >
-        <div className="form-body">
-          <Field
-            label="Tên"
-            autoFocus
-            required
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-          />
-        </div>
-        <div className="modal-footer">
-          <Button type="button" onClick={close}>
-            Hủy
-          </Button>
-          <Button variant="primary">Lưu</Button>
-        </div>
-      </form>
-    </Modal>
   );
 }
 createRoot(document.getElementById("root")).render(<App />);

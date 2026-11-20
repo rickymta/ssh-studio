@@ -5,8 +5,11 @@
   "permissions": [
     "core:default",
     "core:window:allow-destroy",
+    "core:window:allow-hide",
     "dialog:allow-open",
     "dialog:allow-save",
-    "dialog:allow-confirm"
+    "dialog:allow-confirm",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text"
   ]
 }
