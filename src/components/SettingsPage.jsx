@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { RotateCcw, Save } from "lucide-react";
-import { defaultSettings } from "../lib.js";
+import { Keyboard, RotateCcw, Save } from "lucide-react";
+import { SHORTCUTS, UI_SCALES, defaultSettings } from "../lib.js";
+import { Keys } from "./HelpModal.jsx";
 import { Button, Field } from "./ui.jsx";
 
 const cursorStyles = {
@@ -14,19 +15,14 @@ const views = {
   split: "Chia đôi (terminal trên, file dưới)",
   side: "Song song (terminal trái, file phải)",
 };
-export const shortcutList = [
-  ["Ctrl+Tab / Ctrl+Shift+Tab", "Chuyển phiên kế tiếp / trước"],
-  ["Ctrl+1 … Ctrl+9", "Mở phiên thứ 1 … 9"],
-  ["Ctrl+Shift+W", "Đóng phiên đang xem"],
-  ["Ctrl+Shift+T", "Mở lại server vừa đóng"],
-  ["Ctrl+Shift+F", "Tìm trong terminal (Enter / Shift+Enter: sau / trước)"],
-  ["Ctrl+= / Ctrl+- / Ctrl+0", "Tăng / giảm / đặt lại cỡ chữ terminal"],
-  ["Ctrl+K (Ctrl+Shift+K trong terminal)", "Tìm server"],
-  ["Ctrl+Shift+C / Ctrl+Shift+V", "Sao chép / dán trong terminal"],
-];
 
 /** Preferences stored in workspace.json `settings` (F7). */
-export function SettingsPage({ settings, save, trayReady = true }) {
+export function SettingsPage({
+  settings,
+  save,
+  trayReady = true,
+  openHelp = () => {},
+}) {
   const [draft, setDraft] = useState(settings);
   const [busy, setBusy] = useState(false);
   // Follow saved changes (e.g. zoom shortcuts) but not mere re-renders of the app, which
@@ -162,24 +158,45 @@ export function SettingsPage({ settings, save, trayReady = true }) {
               “Thoát SSH Studio” trong menu khay để thoát hẳn.
             </p>
           </fieldset>
+          <fieldset className="settings-section">
+            <legend>Giao diện</legend>
+            <Field label="Cỡ giao diện">
+              <select {...set("uiScale", Number)}>
+                {UI_SCALES.map((scale) => (
+                  <option key={scale} value={scale}>
+                    {scale}%{scale === 100 ? " (mặc định)" : ""}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <p className="form-note">
+              Phóng to / thu nhỏ toàn bộ cửa sổ (chữ, nút, bảng file). Cỡ chữ
+              terminal chỉnh riêng ở mục Terminal hoặc bằng Ctrl+= / Ctrl+-.
+            </p>
+          </fieldset>
           <fieldset className="settings-section settings-shortcuts">
             <legend>Phím tắt</legend>
             <table>
               <tbody>
-                {shortcutList.map(([keys, action]) => (
-                  <tr key={keys}>
-                    <td>
-                      <kbd>{keys}</kbd>
-                    </td>
-                    <td>{action}</td>
-                  </tr>
-                ))}
+                {SHORTCUTS.flatMap((g) => g.items)
+                  .filter((item) => item.action)
+                  .map((item) => (
+                    <tr key={item.label}>
+                      <td>
+                        <Keys combo={item.keys[0]} />
+                      </td>
+                      <td>{item.label}</td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
             <p className="form-note">
               Ctrl+C, Ctrl+V, Ctrl+W và các phím khác của shell luôn được gửi
-              tới server.
+              tới server. F1–F12 không còn tải lại cửa sổ.
             </p>
+            <Button type="button" icon={Keyboard} onClick={openHelp}>
+              Xem tất cả phím tắt (F1)
+            </Button>
           </fieldset>
         </div>
       </form>

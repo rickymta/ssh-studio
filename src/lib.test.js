@@ -6,6 +6,11 @@ import {
   cycleTab,
   defaultSettings,
   shortcut,
+  browserKey,
+  SHORTCUTS,
+  comboEvent,
+  workspaceView,
+  workspaceInitial,
   terminalOptions,
   echoMeter,
   normalizeLayout,
@@ -444,5 +449,80 @@ describe("labels", () => {
     expect(size(512)).toBe("512 B");
     expect(size(2048)).toBe("2.0 KB");
     expect(size(3 * 1073741824)).toBe("3.00 GB");
+  });
+});
+
+describe("browserKey", () => {
+  const down = (key, mods = {}) => ({ type: "keydown", key, ...mods });
+  it("cancels F1-F12, reload and the browser media keys", () => {
+    for (let n = 1; n <= 12; n++) expect(browserKey(down(`F${n}`))).toBe(true);
+    expect(browserKey(down("F5", { ctrlKey: true }))).toBe(true);
+    expect(browserKey(down("BrowserRefresh"))).toBe(true);
+    expect(browserKey(down("R", { ctrlKey: true, shiftKey: true }))).toBe(true);
+    expect(browserKey(down("p", { ctrlKey: true }))).toBe(true);
+    expect(browserKey(down("ArrowLeft", { altKey: true }))).toBe(true);
+  });
+  it("leaves typing, the shell chords and devtools alone", () => {
+    expect(browserKey(down("F13"))).toBe(false);
+    expect(browserKey(down("f"))).toBe(false);
+    expect(browserKey(down("c", { ctrlKey: true }))).toBe(false);
+    expect(browserKey(down("v", { ctrlKey: true }))).toBe(false);
+    expect(browserKey(down("I", { ctrlKey: true, shiftKey: true }))).toBe(
+      false,
+    );
+    expect(browserKey(down("ArrowLeft", { ctrlKey: true }))).toBe(false);
+    expect(browserKey({ type: "keyup", key: "F5" })).toBe(false);
+  });
+});
+
+describe("workspaceView", () => {
+  const hosts = [
+    { id: "a", workspaceId: "personal" },
+    { id: "b", workspaceId: "prod" },
+    { id: "c", workspaceId: "" },
+  ];
+  it("falls back to one implicit workspace without a backend", () => {
+    const view = workspaceView({ hosts });
+    expect(view.active.id).toBe("personal");
+    expect(view.hosts.map((h) => h.id)).toEqual(["a", "b", "c"]);
+  });
+  it("shows the servers of the active workspace and counts every workspace", () => {
+    const workspaces = [
+      { id: "personal", name: "Cá nhân" },
+      { id: "prod", name: "Prod" },
+    ];
+    const view = workspaceView({ hosts, workspaces, activeWorkspace: "prod" });
+    expect(view.active.name).toBe("Prod");
+    expect(view.hosts.map((h) => h.id)).toEqual(["b"]);
+    expect(view.counts).toEqual({ personal: 2, prod: 1 });
+    expect(
+      workspaceView({ hosts, workspaces, activeWorkspace: "x" }).active.id,
+    ).toBe("personal");
+  });
+  it("takes the first letter of the name", () => {
+    expect(workspaceInitial(" ánh")).toBe("Á");
+    expect(workspaceInitial("")).toBe("W");
+  });
+});
+
+describe("shortcut cheat sheet", () => {
+  it("lists only combos that trigger the listed action", () => {
+    for (const group of SHORTCUTS)
+      for (const item of group.items) {
+        if (!item.action) continue;
+        for (const combo of item.keys.filter((k) => k !== "…")) {
+          const inTerminal = item.label.includes("terminal");
+          expect(shortcut(comboEvent(combo), inTerminal)?.action, combo).toBe(
+            item.action,
+          );
+        }
+      }
+  });
+  it("keeps F1 and Ctrl+/ for programs inside the terminal", () => {
+    expect(shortcut(comboEvent("F1"), true)).toBeNull();
+    expect(shortcut(comboEvent("Ctrl+/"), true)).toBeNull();
+    expect(shortcut(comboEvent("Ctrl+Shift+L"), true)).toEqual({
+      action: "activity",
+    });
   });
 });

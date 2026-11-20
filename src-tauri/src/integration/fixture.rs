@@ -473,6 +473,7 @@ impl Fixture {
             password_secret: String::new(),
             password: None,
             forget_password: false,
+            workspace_id: String::new(),
         }
     }
 

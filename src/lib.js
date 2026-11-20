@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+/** App version from package.json, injected by Vite at build time. */
+export const APP_VERSION = __APP_VERSION__;
 export const desktop =
   typeof window !== "undefined" && !!window.__TAURI_INTERNALS__;
 export const call = (name, args = {}) =>
@@ -282,7 +284,10 @@ export const defaultSettings = {
   defaultView: "terminal",
   confirmClose: true,
   closeToTray: false,
+  uiScale: 100,
 };
+/** Interface zoom choices (percent) offered in the settings. */
+export const UI_SCALES = [80, 90, 100, 110, 120, 130, 150];
 export const withDefaults = (settings) => ({
   ...defaultSettings,
   ...(settings || {}),
@@ -372,11 +377,19 @@ export const terminalOptions = (s) => ({
  * line), so the server search is Ctrl+Shift+K there.
  */
 export function shortcut(e, inTerminal = false) {
-  if (e.type !== "keydown" || !e.ctrlKey || e.altKey || e.metaKey) return null;
+  if (e.type !== "keydown" || e.altKey || e.metaKey) return null;
+  // F1 stays with full-screen programs (mc, htop) inside the terminal.
+  if (e.key === "F1" && !e.ctrlKey && !e.shiftKey && !inTerminal)
+    return { action: "help" };
+  if (!e.ctrlKey) return null;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   const code = e.code || "";
   if (key === "Tab") return { action: e.shiftKey ? "prevTab" : "nextTab" };
+  // Ctrl+/ is readline's undo inside the terminal.
+  if ((key === "/" || code === "Slash") && !e.shiftKey && !inTerminal)
+    return { action: "help" };
   if (e.shiftKey) {
+    if (key === "l") return { action: "activity" };
     if (key === "w") return { action: "closeSession" };
     if (key === "t") return { action: "reopen" };
     if (key === "f") return { action: "search" };
@@ -395,6 +408,152 @@ export function shortcut(e, inTerminal = false) {
     return { action: "zoomReset" };
   return null;
 }
+/**
+ * Shortcut cheat sheet. Entries with an `action` are checked against `shortcut()` by the
+ * tests, so the list cannot drift from the handlers; the others are handled in place.
+ */
+export const SHORTCUTS = [
+  {
+    title: "Chung",
+    items: [
+      { label: "Phím tắt và trợ giúp", keys: ["F1", "Ctrl+/"], action: "help" },
+      {
+        label: "Nhật ký hoạt động",
+        keys: ["Ctrl+Shift+L"],
+        action: "activity",
+      },
+      { label: "Tìm server", keys: ["Ctrl+K"], action: "findServer" },
+      {
+        label: "Tìm server (khi đang ở terminal)",
+        keys: ["Ctrl+Shift+K"],
+        action: "findServer",
+      },
+    ],
+  },
+  {
+    title: "Phiên",
+    items: [
+      { label: "Tab kế tiếp", keys: ["Ctrl+Tab"], action: "nextTab" },
+      { label: "Tab trước", keys: ["Ctrl+Shift+Tab"], action: "prevTab" },
+      {
+        label: "Tới tab thứ 1 … 9",
+        keys: ["Ctrl+1", "…", "Ctrl+9"],
+        action: "tab",
+      },
+      { label: "Đóng phiên", keys: ["Ctrl+Shift+W"], action: "closeSession" },
+      {
+        label: "Mở lại phiên vừa đóng",
+        keys: ["Ctrl+Shift+T"],
+        action: "reopen",
+      },
+    ],
+  },
+  {
+    title: "Terminal",
+    items: [
+      { label: "Tìm trong terminal", keys: ["Ctrl+Shift+F"], action: "search" },
+      { label: "Phóng to chữ", keys: ["Ctrl+="], action: "zoomIn" },
+      { label: "Thu nhỏ chữ", keys: ["Ctrl+-"], action: "zoomOut" },
+      { label: "Cỡ chữ mặc định", keys: ["Ctrl+0"], action: "zoomReset" },
+      { label: "Sao chép", keys: ["Ctrl+Shift+C", "Ctrl+Insert"] },
+      { label: "Dán", keys: ["Ctrl+Shift+V", "Shift+Insert"] },
+    ],
+  },
+  {
+    title: "File",
+    items: [
+      { label: "Chọn tất cả", keys: ["Ctrl+A"] },
+      { label: "Chọn thêm / bỏ chọn", keys: ["Ctrl+Click", "Space"] },
+      { label: "Chọn một dải", keys: ["Shift+Click"] },
+      { label: "Mở thư mục", keys: ["Enter"] },
+      { label: "Lưu file đang sửa", keys: ["Ctrl+S"] },
+    ],
+  },
+];
+/** Keyboard event for a combo such as "Ctrl+Shift+W" (used by the cheat sheet tests). */
+export function comboEvent(combo) {
+  const parts = combo.split("+");
+  const key = parts.pop() || "+";
+  return {
+    type: "keydown",
+    key,
+    code: /^[0-9]$/.test(key) ? `Digit${key}` : "",
+    ctrlKey: parts.includes("Ctrl"),
+    shiftKey: parts.includes("Shift"),
+    altKey: parts.includes("Alt"),
+    metaKey: false,
+  };
+}
+/** WebView keys that act like a browser (reload, print, find bar, history, back...). */
+const BROWSER_CTRL_KEYS = new Set([
+  "r",
+  "p",
+  "f",
+  "g",
+  "h",
+  "j",
+  "o",
+  "s",
+  "u",
+]);
+/**
+ * True when the WebView's own handling of a key must be cancelled: F1–F12 (F5 reloads the
+ * whole app), the browser media keys, Ctrl+R/P/F/G/H/J/O/S/U and Alt+Left/Right. Only the
+ * default action is prevented, so the terminal and the app shortcuts still see the key.
+ * Ctrl+Shift+I (devtools, debug builds only) is left alone.
+ */
+export function browserKey(e) {
+  if (e.type !== "keydown") return false;
+  const key = e.key || "";
+  if (/^F([1-9]|1[0-2])$/.test(key) || key.startsWith("Browser")) return true;
+  if (e.altKey && !e.ctrlKey && (key === "ArrowLeft" || key === "ArrowRight"))
+    return true;
+  return (
+    !!(e.ctrlKey || e.metaKey) &&
+    !e.altKey &&
+    key.length === 1 &&
+    BROWSER_CTRL_KEYS.has(key.toLowerCase())
+  );
+}
+/** Workspace accent colours, same order as `workspace::COLORS` in the backend. */
+export const WORKSPACE_COLORS = {
+  mint: "#7ce4c9",
+  blue: "#6aa8ff",
+  violet: "#a78bfa",
+  pink: "#f472b6",
+  orange: "#fb923c",
+  yellow: "#facc15",
+  red: "#f87171",
+  slate: "#94a3b8",
+};
+/**
+ * Workspaces and the servers of the active one. Without a backend (browser preview) there
+ * is a single implicit workspace holding every server.
+ */
+export function workspaceView(data) {
+  const workspaces = data.workspaces?.length
+    ? data.workspaces
+    : [{ id: "personal", name: "Cá nhân", color: "mint" }];
+  const active =
+    workspaces.find((w) => w.id === data.activeWorkspace) || workspaces[0];
+  const known = new Set(workspaces.map((w) => w.id));
+  const inWorkspace = (h) =>
+    known.has(h.workspaceId)
+      ? h.workspaceId === active.id
+      : active.id === workspaces[0].id;
+  const counts = Object.fromEntries(workspaces.map((w) => [w.id, 0]));
+  for (const h of data.hosts || [])
+    counts[known.has(h.workspaceId) ? h.workspaceId : workspaces[0].id]++;
+  return {
+    workspaces,
+    active,
+    hosts: (data.hosts || []).filter(inWorkspace),
+    counts,
+  };
+}
+/** Initial shown in a workspace avatar. */
+export const workspaceInitial = (name) =>
+  ([...(name || "").trim()][0] || "W").toUpperCase();
 /** Index of the tab after `active` when cycling with Ctrl+Tab / Ctrl+Shift+Tab. */
 export function cycleTab(ids, active, step) {
   if (!ids.length) return null;

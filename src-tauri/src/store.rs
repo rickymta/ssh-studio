@@ -16,6 +16,9 @@ pub struct Host {
     pub port: u16,
     pub username: String,
     pub group: String,
+    /// Workspace the server belongs to (older files: moved into the default workspace).
+    #[serde(default)]
+    pub workspace_id: String,
     /// `password` | `key` | `agent` | `interactive` (keyboard-interactive / MFA).
     pub auth: String,
     pub key_id: String,
@@ -169,6 +172,12 @@ pub struct Data {
     pub hosts: Vec<Host>,
     pub keys: Vec<Key>,
     pub known_hosts: BTreeMap<String, String>,
+    /// Named groups of servers; never empty after `workspace::normalize`.
+    #[serde(default)]
+    pub workspaces: Vec<crate::workspace::Workspace>,
+    /// Workspace shown in the sidebar.
+    #[serde(default)]
+    pub active_workspace: String,
     /// Older workspace files have no settings; they start with the defaults (F7).
     #[serde(default)]
     pub settings: Settings,
@@ -192,6 +201,8 @@ pub struct Settings {
     pub confirm_close: bool,
     /// Closing the window hides it to the system tray; sessions keep running.
     pub close_to_tray: bool,
+    /// Interface zoom in percent (WebView zoom; the terminal font has its own size).
+    pub ui_scale: u16,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -206,6 +217,7 @@ impl Default for Settings {
             default_view: "terminal".into(),
             confirm_close: true,
             close_to_tray: false,
+            ui_scale: 100,
         }
     }
 }
@@ -225,6 +237,7 @@ impl Settings {
             defaults.line_height
         };
         self.scrollback = self.scrollback.clamp(500, 100_000);
+        self.ui_scale = self.ui_scale.clamp(80, 150);
         if !["block", "bar", "underline"].contains(&self.cursor_style.as_str()) {
             self.cursor_style = defaults.cursor_style;
         }
@@ -255,7 +268,7 @@ impl Store {
         std::fs::create_dir_all(&directory)?;
         let file = directory.join("workspace.json");
         let mut recovered = None;
-        let data = if file.exists() {
+        let mut data = if file.exists() {
             let bytes = std::fs::read(&file)?;
             match serde_json::from_slice(&bytes) {
                 Ok(data) => data,
@@ -274,6 +287,7 @@ impl Store {
         } else {
             Data::default()
         };
+        crate::workspace::normalize(&mut data);
         Ok(Self {
             data,
             directory,
@@ -429,6 +443,7 @@ mod tests {
             scrollback: 5,
             cursor_style: "beam".into(),
             default_view: "ports".into(),
+            ui_scale: 400,
             ..Settings::default()
         }
         .normalized();
@@ -438,6 +453,8 @@ mod tests {
         assert_eq!(wild.scrollback, 500);
         assert_eq!(wild.cursor_style, "block");
         assert_eq!(wild.default_view, "terminal");
+        assert_eq!(wild.ui_scale, 150);
+        assert_eq!(partial.ui_scale, 100);
         let side = Settings {
             default_view: "side".into(),
             ..Settings::default()

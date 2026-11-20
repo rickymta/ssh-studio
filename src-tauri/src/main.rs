@@ -11,6 +11,7 @@ mod store;
 mod sync;
 mod transfer;
 mod tray;
+mod workspace;
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc};
 use store::{Host, Settings, Store};
@@ -65,6 +66,18 @@ type Shared<'a> = State<'a, Arc<AppState>>;
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
+/// Version and environment for the Help → About tab (no secrets, no workspace data).
+#[tauri::command]
+async fn app_info(state: Shared<'_>) -> Result<Value, String> {
+    let directory = state.store.lock().await.directory.clone();
+    Ok(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "tauri": tauri::VERSION,
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+        "dataDir": directory.to_string_lossy(),
+    }))
+}
 #[tauri::command]
 async fn snapshot(state: Shared<'_>) -> Result<Value, String> {
     Ok(state.store.lock().await.snapshot())
@@ -82,6 +95,14 @@ async fn save_host(state: Shared<'_>, host: Host) -> Result<Value, String> {
         return Err("Jump host không tồn tại.".into());
     }
     let previous = store.data.hosts.iter().find(|h| h.id == host.id).cloned();
+    if !store
+        .data
+        .workspaces
+        .iter()
+        .any(|w| w.id == host.workspace_id)
+    {
+        host.workspace_id = store.data.active_workspace.clone();
+    }
     host.seal_proxy_password(previous.as_ref()).map_err(err)?;
     host.seal_login_password(previous.as_ref()).map_err(err)?;
     let before = store.data.clone();
@@ -469,6 +490,39 @@ async fn restore_backup(
     Ok(json!({"report": report, "snapshot": store.snapshot()}))
 }
 
+/// Applies a workspace change and saves, or leaves the store untouched on error.
+async fn change_workspaces(
+    state: Shared<'_>,
+    change: impl FnOnce(&mut store::Data) -> anyhow::Result<()>,
+) -> Result<Value, String> {
+    let mut store = state.store.lock().await;
+    let before = store.data.clone();
+    if let Err(e) = change(&mut store.data).and_then(|_| store.save()) {
+        store.data = before;
+        return Err(err(e));
+    }
+    Ok(store.snapshot())
+}
+#[tauri::command]
+async fn save_workspace(
+    state: Shared<'_>,
+    workspace: workspace::Workspace,
+) -> Result<Value, String> {
+    change_workspaces(state, |data| workspace::save(data, workspace)).await
+}
+#[tauri::command]
+async fn delete_workspace(state: Shared<'_>, id: String, move_to: String) -> Result<Value, String> {
+    change_workspaces(state, |data| workspace::delete(data, &id, &move_to)).await
+}
+#[tauri::command]
+async fn activate_workspace(state: Shared<'_>, id: String) -> Result<Value, String> {
+    change_workspaces(state, |data| workspace::activate(data, &id)).await
+}
+#[tauri::command]
+async fn move_hosts(state: Shared<'_>, ids: Vec<String>, to: String) -> Result<Value, String> {
+    change_workspaces(state, |data| workspace::move_hosts(data, &ids, &to)).await
+}
+
 #[tauri::command]
 async fn save_settings(state: Shared<'_>, settings: Settings) -> Result<Value, String> {
     let mut store = state.store.lock().await;
@@ -509,7 +563,12 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             snapshot,
+            app_info,
             save_host,
+            save_workspace,
+            delete_workspace,
+            activate_workspace,
+            move_hosts,
             delete_host,
             import_key,
             generate_key,

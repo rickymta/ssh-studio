@@ -2,10 +2,18 @@ import { createRoot } from "react-dom/client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import appIcon from "../assets/logo.svg";
 import statusbarIcon from "../assets/statusbar.svg";
 import { HostModal } from "./components/HostModal.jsx";
+import { HelpModal } from "./components/HelpModal.jsx";
+import { ActivityModal } from "./components/ActivityModal.jsx";
+import { logActivity, useActivity } from "./activity.js";
+import {
+  WorkspaceModal,
+  WorkspaceSwitcher,
+} from "./components/WorkspaceSwitcher.jsx";
 import { AuthPromptModal } from "./components/AuthPromptModal.jsx";
 import { KeyModal } from "./components/KeyModal.jsx";
 import { SessionPane } from "./components/SessionPane.jsx";
@@ -41,9 +49,12 @@ import {
   Unplug,
   LayoutGrid,
   LockKeyhole,
+  ScrollText,
+  CircleHelp,
   Settings as SettingsIcon,
 } from "lucide-react";
 import {
+  APP_VERSION,
   desktop,
   call,
   uid,
@@ -53,8 +64,10 @@ import {
   retryRequest,
   withDefaults,
   shortcut,
+  browserKey,
   cycleTab,
   zoomFont,
+  workspaceView,
 } from "./lib.js";
 import { Button, IconButton, Modal } from "./components/ui.jsx";
 
@@ -102,11 +115,11 @@ function App() {
   const [trayReady, setTrayReady] = useState(false);
   const trayRef = useRef(false);
   trayRef.current = trayReady;
-  const notify = useCallback(
-    (message, error = false) =>
-      setToast({ message: cleanError(message), error }),
-    [],
-  );
+  const notify = useCallback((message, error = false, source = "") => {
+    const text = cleanError(message);
+    setToast({ message: text, error });
+    logActivity(text, { level: error ? "error" : "info", source });
+  }, []);
   const run = async (fn) => {
     try {
       return await fn();
@@ -150,11 +163,22 @@ function App() {
     };
     Promise.all([
       call("snapshot").then(setData),
-      register("session", (payload) =>
+      register("session", (payload) => {
+        const session = sessionsRef.current.find((s) => s.id === payload.id);
+        if (session && session.status !== payload.status) {
+          const source = session.host.name;
+          if (payload.status === "connected")
+            logActivity(
+              `Đã kết nối ${session.host.username}@${session.host.host}`,
+              { level: "success", source },
+            );
+          else if (payload.status === "closed")
+            logActivity("Phiên đã đóng", { source });
+        }
         setSessions((old) =>
           old.map((s) => (s.id === payload.id ? { ...s, ...payload } : s)),
-        ),
-      ),
+        );
+      }),
       register("host-verification", (payload) =>
         setVerification((old) => [...old, payload]),
       ),
@@ -183,7 +207,8 @@ function App() {
           ),
         })),
       ),
-      register("transfer", (payload) =>
+      register("transfer", (payload) => {
+        logTransfer(payload);
         setTransfers((old) => {
           const index = old.findIndex((t) => t.id === payload.id);
           return index < 0
@@ -201,8 +226,8 @@ function App() {
                     }
                   : t,
               );
-        }),
-      ),
+        });
+      }),
     ])
       .then(() => {
         if (!disposed) setReady(true);
@@ -246,6 +271,39 @@ function App() {
       removers.forEach((off) => off());
     };
   }, []);
+  // Finished transfers go to the activity log once (no contents, only names).
+  const logTransfer = (t) => {
+    const before = transfersRef.current.find((x) => x.id === t.id);
+    if (before?.status === t.status) return;
+    const source = sessionsRef.current.find((s) => s.id === t.sessionId)?.host
+      .name;
+    const upload = t.direction === "upload";
+    const messages = {
+      completed: [
+        `Đã ${upload ? "tải lên" : "tải xuống"} ${t.name}`,
+        "success",
+      ],
+      failed: [
+        `Truyền ${t.name} thất bại: ${cleanError(t.error || "")}`,
+        "error",
+      ],
+      cancelled: [`Đã hủy truyền ${t.name}`, "info"],
+      skipped: [`Bỏ qua ${t.name} (đích đã tồn tại)`, "info"],
+    };
+    const [message, level] = messages[t.status] || [];
+    if (message) logActivity(message, { level, source });
+  };
+  // Interface zoom: the WebView's own zoom in the app, CSS zoom in the browser preview.
+  useEffect(() => {
+    const scale = (settings.uiScale || 100) / 100;
+    if (desktop)
+      getCurrentWebview()
+        .setZoom(scale)
+        .catch(() => {});
+    else document.documentElement.style.zoom = scale;
+  }, [settings.uiScale]);
+  const activity = useActivity();
+  const activityErrors = activity.filter((e) => e.level === "error").length;
   const connected = sessions.filter((s) => s.status === "connected").length;
   const current = sessions.find((s) => s.id === active);
   const selectSession = (id) => {
@@ -285,7 +343,7 @@ function App() {
           s.id === id ? { ...s, status: "error", error: cleanError(e) } : s,
         ),
       );
-      notify(e, true);
+      notify(e, true, host.name);
     }
   };
   const connectHost = (host, reuseId = null) => {
@@ -351,6 +409,10 @@ function App() {
       const fontSize = zoomFont(settings.fontSize, action);
       if (fontSize !== settings.fontSize)
         saveSettings({ ...settings, fontSize }, true);
+    } else if (action === "help") {
+      setModal({ type: "help" });
+    } else if (action === "activity") {
+      setModal({ type: "activity" });
     } else if (action === "findServer") {
       setPage("hosts");
       requestAnimationFrame(() => searchBox.current?.select());
@@ -365,21 +427,33 @@ function App() {
   };
   useEffect(() => {
     const handler = (e) => onShortcut.current(e);
+    // Capture phase, before the terminal and inputs: F5 & co. must never reload the app.
+    const browser = (e) => browserKey(e) && e.preventDefault();
+    window.addEventListener("keydown", browser, true);
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", browser, true);
+      window.removeEventListener("keydown", handler);
+    };
   }, []);
-  const filtered = data.hosts.filter(
+  const view = workspaceView(data);
+  const filtered = view.hosts.filter(
     (h) =>
       (group === "all" || h.group === group) &&
       `${h.name} ${h.host} ${h.username}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
-  const groups = [...new Set(data.hosts.map((h) => h.group))];
+  const groups = [...new Set(view.hosts.map((h) => h.group))];
   // A group filter whose last server was deleted or moved falls back to "all".
   useEffect(() => {
     if (group !== "all" && !groups.includes(group)) setGroup("all");
-  }, [data.hosts, group]);
+  }, [data.hosts, data.activeWorkspace, group]);
+  const activateWorkspace = (id) =>
+    run(async () => {
+      setData(await call("activate_workspace", { id }));
+      setPage("hosts");
+    });
   const onDeleteHost = (host) =>
     run(async () => {
       if (
@@ -404,13 +478,11 @@ function App() {
             SSH Studio<small>YOUR SERVER WORKSPACE</small>
           </div>
         </div>
-        <div className="workspace-label">
-          <span className="avatar">P</span>
-          <div>
-            Personal workspace<small>Lưu trên máy của bạn</small>
-          </div>
-          <LockKeyhole size={14} />
-        </div>
+        <WorkspaceSwitcher
+          view={view}
+          activate={activateWorkspace}
+          edit={(workspace) => setModal({ type: "workspace", workspace })}
+        />
         <div className="nav-label">WORKSPACE</div>
         <button
           className={`nav-item ${page === "hosts" ? "active" : ""}`}
@@ -420,7 +492,7 @@ function App() {
           }}
         >
           <Server size={18} />
-          Servers<span className="count">{data.hosts.length}</span>
+          Servers<span className="count">{view.hosts.length}</span>
         </button>
         <button
           className={`nav-item ${page === "keys" ? "active" : ""}`}
@@ -457,7 +529,7 @@ function App() {
               <Folder size={17} />
               {g}
               <span className="count">
-                {data.hosts.filter((h) => h.group === g).length}
+                {view.hosts.filter((h) => h.group === g).length}
               </span>
             </button>
           ))
@@ -491,14 +563,14 @@ function App() {
         <div className="sidebar-bottom">
           <ShieldCheck size={16} />
           <div>
-            Local-first. Riêng tư.<small>Rust + Tauri · v0.1.0</small>
+            Local-first. Riêng tư.<small>Phiên bản {APP_VERSION}</small>
           </div>
         </div>
       </aside>
       <main>
         <header className="topbar">
           <div className="breadcrumb">
-            <span>Workspace</span>
+            <span>{view.active.name}</span>
             <ChevronRight size={14} />
             <strong>
               {page === "hosts"
@@ -563,7 +635,7 @@ function App() {
                   <h1>
                     {group === "all" ? "Servers" : group}
                     <span>
-                      {group === "all" ? data.hosts.length : filtered.length}
+                      {group === "all" ? view.hosts.length : filtered.length}
                     </span>
                   </h1>
                   <p>
@@ -625,7 +697,7 @@ function App() {
                   <LayoutGrid size={17} />
                 </div>
               </div>
-              {data.hosts.length === 0 ? (
+              {view.hosts.length === 0 ? (
                 <div className="welcome">
                   <div className="welcome-art">
                     <span className="orbit orbit-one" />
@@ -942,6 +1014,7 @@ function App() {
               settings={settings}
               save={saveSettings}
               trayReady={trayReady || !desktop}
+              openHelp={() => setModal({ type: "help" })}
             />
           )}
           {sessions.map((session) => (
@@ -1006,7 +1079,30 @@ function App() {
             Truyền file{pending > 0 && <b>{pending}</b>}
             <ChevronDown size={13} className={!showTransfers ? "rotate" : ""} />
           </button>
-          <span>Rust + Tauri</span>
+          <span className="statusbar-tools">
+            <button
+              title="Nhật ký hoạt động (Ctrl+Shift+L)"
+              onClick={() => setModal({ type: "activity" })}
+            >
+              <ScrollText size={13} />
+              Hoạt động
+              {activityErrors > 0 && <b className="error">{activityErrors}</b>}
+            </button>
+            <button
+              title="Phím tắt và trợ giúp (F1)"
+              onClick={() => setModal({ type: "help" })}
+            >
+              <CircleHelp size={13} />
+              Trợ giúp
+            </button>
+            <button
+              className="statusbar-version"
+              title="Giới thiệu SSH Studio"
+              onClick={() => setModal({ type: "help", tab: "about" })}
+            >
+              v{APP_VERSION}
+            </button>
+          </span>
         </footer>
       </main>
       {toast && (
@@ -1025,6 +1121,8 @@ function App() {
           host={modal.host}
           hosts={data.hosts}
           keys={data.keys}
+          workspaces={view.workspaces}
+          workspaceId={view.active.id}
           close={() => setModal(null)}
           save={(host) =>
             run(async () => {
@@ -1054,6 +1152,43 @@ function App() {
             })
           }
         />
+      )}
+      {modal?.type === "workspace" && (
+        <WorkspaceModal
+          workspace={modal.workspace}
+          view={view}
+          close={() => setModal(null)}
+          save={async (workspace) => {
+            setData(await call("save_workspace", { workspace }));
+            setModal(null);
+            setPage("hosts");
+            notify(
+              workspace.id
+                ? "Đã lưu workspace."
+                : `Đã tạo và chuyển sang workspace “${workspace.name.trim()}”.`,
+            );
+          }}
+          remove={async (workspace, moveTo) => {
+            if (
+              !(await confirm(`Xóa workspace “${workspace.name}”?`, {
+                title: "Xóa workspace",
+                kind: "warning",
+              }))
+            )
+              return;
+            setData(
+              await call("delete_workspace", { id: workspace.id, moveTo }),
+            );
+            setModal(null);
+            notify("Đã xóa workspace.");
+          }}
+        />
+      )}
+      {modal?.type === "help" && (
+        <HelpModal tab={modal.tab} close={() => setModal(null)} />
+      )}
+      {modal?.type === "activity" && (
+        <ActivityModal close={() => setModal(null)} confirm={confirm} />
       )}
       {modal?.type === "key" && (
         <KeyModal
