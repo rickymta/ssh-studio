@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  # No push / pull_request triggers: Actions only run when a release tag is pushed (release.yml
+  # calls this workflow on the tagged commit), or by hand from the Actions tab.
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit / tag to test (default: the ref of the event)'
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # package.json, package-lock.json, tauri.conf.json, Cargo.toml and Cargo.lock agree.
+  version-sync:
+    name: Version files in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node scripts/release.mjs --check
+
+  # Windows only: macOS / Linux are not built or tested yet (docs/RELEASE.md §2–4).
+  check:
+    name: Check (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+      - run: npm run test:ui
+      # The Tauri crate embeds ../dist at compile time, so build the frontend first.
+      - run: npm run build
+
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      # Loopback SSH / SFTP server and the Windows Credential Manager of the runner; no real
+      # servers or credentials. --no-fail-fast reports every failing test in one run.
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast

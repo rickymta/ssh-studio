@@ -98,6 +98,7 @@ npm run dist
 - `npm run pack`: executable release tại `src-tauri/target/release/ssh-studio.exe`.
 - `npm run dist`: thêm NSIS installer tại `src-tauri/target/release/bundle/nsis/`.
 - `npm run dist:signed`: như `dist` nhưng ký số executable và installer (cần chứng chỉ, xem [docs/RELEASE.md](docs/RELEASE.md)).
+- `npm run release -- patch|minor|major|x.y.z`: đổi version ở mọi file, thêm mục [CHANGELOG.md](CHANGELOG.md), commit và tạo tag (không push). Đẩy tag `vX.Y.Z` lên `main` thì GitHub Actions chạy toàn bộ test, build installer Windows và đăng release kèm `SHA256SUMS.txt` (chi tiết ở [docs/RELEASE.md](docs/RELEASE.md)).
 
 Test chạy trên server SSH/SFTP giả lập trong tiến trình, dùng thư mục tạm thật làm ổ đĩa remote: vault và backup (sai mật khẩu, file bị sửa), không lộ secret trong snapshot, nhập PPK, truyền thư mục, xung đột ghi đè / bỏ qua / giữ cả hai, resume sau khi ngắt, sửa file và phát hiện xung đột, đồng bộ, MFA nhiều bước, keyboard-interactive, SSH agent, jump host, proxy SOCKS5 / HTTP, port forwarding -L / -R / -D, host key thay đổi. Phần giao diện có test vitest cho các hàm thuần (chọn nhiều, kế hoạch xung đột, đồng bộ, phím tắt…).
 

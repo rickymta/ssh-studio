@@ -1,0 +1,259 @@
+name: Release
+
+# Publishes when a tag vX.Y.Z (or vX.Y.Z-beta.1) on main is pushed. Re-run for an existing tag:
+# Actions > Release > Run workflow.
+# Flow: prepare (tag format, version files, tag on main) -> test (the whole CI on the tagged commit)
+#       -> draft (DRAFT release, notes from CHANGELOG.md) -> build (Windows installer, uploaded to the
+#       draft) -> publish (SHA256SUMS.txt, draft -> published). Failing tests: no build and no
+#       release; failing build: the release stays a DRAFT.
+# Create the tag: `npm run release -- patch|minor|major|x.y.z` (version files + CHANGELOG + commit +
+# tag, never pushes), then `git push origin main vX.Y.Z`.
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish again (e.g. v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    env:
+      INPUT_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Resolve tag
+        id: meta
+        run: |
+          tag="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '$tag' is not vX.Y.Z or vX.Y.Z-pre."
+            exit 1
+          fi
+          version="${tag#v}"
+          prerelease=false
+          if [[ "$version" == *-* ]]; then prerelease=true; fi
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ steps.meta.outputs.tag }}
+          # Full history: the "tag must be on main" check walks the ancestry.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Version in the tag matches the version files
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: node scripts/release.mjs --check "$VERSION"
+
+      - name: Tag must be on main
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "refs/tags/$TAG" FETCH_HEAD; then
+            echo "::error::Tag $TAG is not on main: releases are cut from main only."
+            exit 1
+          fi
+
+  # The whole CI on the tagged commit. No build unless it passes.
+  test:
+    name: Test
+    needs: prepare
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: refs/tags/${{ needs.prepare.outputs.tag }}
+
+  draft:
+    name: Create draft release
+    needs: [prepare, test]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+
+      - name: Create (or reset) draft release
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          # Notes: the version's section of CHANGELOG.md, generated notes otherwise.
+          notes_args=(--generate-notes)
+          if [ -f CHANGELOG.md ]; then
+            # Header "## [X.Y.Z] - date" (brackets and a leading v optional), compared as text:
+            # a version inside a string regex breaks on "\[" escaping and treats dots as wildcards.
+            awk -v v="$VERSION" '
+              /^## / {
+                if (found) exit
+                h = $0; sub(/^## +/, "", h); gsub(/\[|\]/, "", h); sub(/^v/, "", h); split(h, w, " ")
+                if (w[1] == v) { found = 1; next }
+              }
+              found { print }
+            ' CHANGELOG.md > notes.md
+            if [ -s notes.md ] && grep -q '[^[:space:]]' notes.md; then
+              notes_args=(--notes-file notes.md)
+            fi
+          fi
+          flags=()
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists: back to draft for the re-run."
+            gh release edit "$TAG" --draft=true --prerelease="$PRERELEASE"
+          else
+            gh release create "$TAG" --draft --verify-tag --title "SSH Studio $TAG" "${notes_args[@]}" "${flags[@]}"
+          fi
+
+  build:
+    name: Build (${{ matrix.label }})
+    needs: [prepare, draft]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS / Linux join once they have icons, a test run and a manual check (docs/RELEASE.md).
+          - label: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release-${{ matrix.target }}
+
+      - run: npm ci
+
+      # Optional Windows code signing: only with the WINDOWS_CERTIFICATE secret (base64 .pfx).
+      - name: Import Windows code signing certificate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrEmpty($env:WINDOWS_CERTIFICATE)) {
+            Write-Host 'No WINDOWS_CERTIFICATE secret: unsigned build.'
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'codesign.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pw = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          Remove-Item $pfx
+          $cfg = @{ bundle = @{ windows = @{
+            certificateThumbprint = $cert.Thumbprint
+            digestAlgorithm = 'sha256'
+            timestampUrl = 'http://timestamp.digicert.com'
+          } } } | ConvertTo-Json -Depth 5
+          $cfgPath = Join-Path $env:RUNNER_TEMP 'tauri-sign.conf.json'
+          Set-Content -Path $cfgPath -Value $cfg
+          "TAURI_SIGN_CONFIG=$cfgPath" >> $env:GITHUB_ENV
+
+      - name: Build bundles
+        run: |
+          args=(--target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}")
+          if [ -n "${TAURI_SIGN_CONFIG:-}" ]; then args+=(--config "$TAURI_SIGN_CONFIG"); fi
+          npm run tauri -- build "${args[@]}"
+
+      - name: Collect and upload artifacts
+        run: |
+          bundle="src-tauri/target/${{ matrix.target }}/release/bundle"
+          out="release-assets"
+          mkdir -p "$out"
+          copy() { # copy <dir> <pattern> <suffix>
+            local f
+            for f in "$bundle/$1"/$2; do
+              [ -f "$f" ] || continue
+              cp "$f" "$out/SSHStudio_${VERSION}_${{ matrix.label }}$3"
+              echo "  $f -> SSHStudio_${VERSION}_${{ matrix.label }}$3"
+            done
+          }
+          case "${{ matrix.label }}" in
+            windows-*) copy nsis '*-setup.exe' -setup.exe ;;
+          esac
+          expected=$(echo "${{ matrix.bundles }}" | tr ',' '\n' | wc -l)
+          actual=$(ls "$out" | wc -l)
+          if [ "$actual" -ne "$expected" ]; then
+            echo "::error::Expected $expected installer(s), found $actual:"
+            ls -la "$bundle"/* || true
+            exit 1
+          fi
+          gh release upload "$TAG" "$out"/* --clobber
+
+  publish:
+    name: Publish release
+    needs: [prepare, draft, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+    steps:
+      - name: Generate SHA256SUMS.txt
+        run: |
+          mkdir assets && cd assets
+          gh release download "$TAG" --pattern '*' --skip-existing
+          rm -f SHA256SUMS.txt
+          [ -n "$(ls)" ] || { echo "::error::The release has no assets."; exit 1; }
+          sha256sum * | tee SHA256SUMS.txt
+          gh release upload "$TAG" SHA256SUMS.txt --clobber
+
+      - name: Publish (draft -> published)
+        run: |
+          flags=(--draft=false --prerelease="$PRERELEASE")
+          if [ "$PRERELEASE" = true ]; then flags+=(--latest=false); else flags+=(--latest); fi
+          gh release edit "$TAG" "${flags[@]}"
