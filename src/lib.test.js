@@ -6,6 +6,7 @@ import {
   cycleTab,
   defaultSettings,
   shortcut,
+  browserKey,
   terminalOptions,
   echoMeter,
   normalizeLayout,
@@ -444,5 +445,28 @@ describe("labels", () => {
     expect(size(512)).toBe("512 B");
     expect(size(2048)).toBe("2.0 KB");
     expect(size(3 * 1073741824)).toBe("3.00 GB");
+  });
+});
+
+describe("browserKey", () => {
+  const down = (key, mods = {}) => ({ type: "keydown", key, ...mods });
+  it("cancels F1-F12, reload and the browser media keys", () => {
+    for (let n = 1; n <= 12; n++) expect(browserKey(down(`F${n}`))).toBe(true);
+    expect(browserKey(down("F5", { ctrlKey: true }))).toBe(true);
+    expect(browserKey(down("BrowserRefresh"))).toBe(true);
+    expect(browserKey(down("R", { ctrlKey: true, shiftKey: true }))).toBe(true);
+    expect(browserKey(down("p", { ctrlKey: true }))).toBe(true);
+    expect(browserKey(down("ArrowLeft", { altKey: true }))).toBe(true);
+  });
+  it("leaves typing, the shell chords and devtools alone", () => {
+    expect(browserKey(down("F13"))).toBe(false);
+    expect(browserKey(down("f"))).toBe(false);
+    expect(browserKey(down("c", { ctrlKey: true }))).toBe(false);
+    expect(browserKey(down("v", { ctrlKey: true }))).toBe(false);
+    expect(browserKey(down("I", { ctrlKey: true, shiftKey: true }))).toBe(
+      false,
+    );
+    expect(browserKey(down("ArrowLeft", { ctrlKey: true }))).toBe(false);
+    expect(browserKey({ type: "keyup", key: "F5" })).toBe(false);
   });
 });

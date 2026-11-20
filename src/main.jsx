@@ -44,6 +44,7 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import {
+  APP_VERSION,
   desktop,
   call,
   uid,
@@ -53,6 +54,7 @@ import {
   retryRequest,
   withDefaults,
   shortcut,
+  browserKey,
   cycleTab,
   zoomFont,
 } from "./lib.js";
@@ -365,8 +367,14 @@ function App() {
   };
   useEffect(() => {
     const handler = (e) => onShortcut.current(e);
+    // Capture phase, before the terminal and inputs: F5 & co. must never reload the app.
+    const browser = (e) => browserKey(e) && e.preventDefault();
+    window.addEventListener("keydown", browser, true);
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", browser, true);
+      window.removeEventListener("keydown", handler);
+    };
   }, []);
   const filtered = data.hosts.filter(
     (h) =>
@@ -491,7 +499,7 @@ function App() {
         <div className="sidebar-bottom">
           <ShieldCheck size={16} />
           <div>
-            Local-first. Riêng tư.<small>Rust + Tauri · v0.1.0</small>
+            Local-first. Riêng tư.<small>Phiên bản {APP_VERSION}</small>
           </div>
         </div>
       </aside>
@@ -1006,7 +1014,7 @@ function App() {
             Truyền file{pending > 0 && <b>{pending}</b>}
             <ChevronDown size={13} className={!showTransfers ? "rotate" : ""} />
           </button>
-          <span>Rust + Tauri</span>
+          <span>v{APP_VERSION}</span>
         </footer>
       </main>
       {toast && (

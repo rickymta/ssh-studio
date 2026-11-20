@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+/** App version from package.json, injected by Vite at build time. */
+export const APP_VERSION = __APP_VERSION__;
 export const desktop =
   typeof window !== "undefined" && !!window.__TAURI_INTERNALS__;
 export const call = (name, args = {}) =>
@@ -394,6 +396,37 @@ export function shortcut(e, inTerminal = false) {
   if (!e.shiftKey && (key === "0" || code === "Digit0" || code === "Numpad0"))
     return { action: "zoomReset" };
   return null;
+}
+/** WebView keys that act like a browser (reload, print, find bar, history, back...). */
+const BROWSER_CTRL_KEYS = new Set([
+  "r",
+  "p",
+  "f",
+  "g",
+  "h",
+  "j",
+  "o",
+  "s",
+  "u",
+]);
+/**
+ * True when the WebView's own handling of a key must be cancelled: F1–F12 (F5 reloads the
+ * whole app), the browser media keys, Ctrl+R/P/F/G/H/J/O/S/U and Alt+Left/Right. Only the
+ * default action is prevented, so the terminal and the app shortcuts still see the key.
+ * Ctrl+Shift+I (devtools, debug builds only) is left alone.
+ */
+export function browserKey(e) {
+  if (e.type !== "keydown") return false;
+  const key = e.key || "";
+  if (/^F([1-9]|1[0-2])$/.test(key) || key.startsWith("Browser")) return true;
+  if (e.altKey && !e.ctrlKey && (key === "ArrowLeft" || key === "ArrowRight"))
+    return true;
+  return (
+    !!(e.ctrlKey || e.metaKey) &&
+    !e.altKey &&
+    key.length === 1 &&
+    BROWSER_CTRL_KEYS.has(key.toLowerCase())
+  );
 }
 /** Index of the tab after `active` when cycling with Ctrl+Tab / Ctrl+Shift+Tab. */
 export function cycleTab(ids, active, step) {
