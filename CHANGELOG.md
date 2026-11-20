@@ -4,6 +4,40 @@ Các thay đổi đáng chú ý của SSH Studio. Định dạng theo [Keep a Ch
 phiên bản theo [Semantic Versioning](https://semver.org/lang/vi/). Mục mới được `npm run release` tự thêm
 từ commit (Conventional Commits) kể từ tag trước.
 
+## [0.2.0] - 2026-11-20
+
+Bản đầu tiên cho cả Windows, macOS và Linux.
+
+### Nền tảng
+
+- **macOS**: `.dmg` riêng cho Apple Silicon (`macos-aarch64`) và Intel (`macos-x64`), macOS 10.15+.
+  Vault dùng Keychain; biểu tượng khay đổi màu theo menu bar sáng / tối. Bản chưa ký: lần đầu mở
+  bằng chuột phải → Open (xem `docs/RELEASE.md` §2).
+- **Linux x64**: `.deb`, `.rpm`, `.AppImage` (build trên Ubuntu 22.04). Vault dùng Secret Service
+  (GNOME Keyring / KWallet); gói `.deb` / `.rpm` khuyến nghị `gnome-keyring`.
+- Windows x64: installer NSIS như trước.
+- Test tự động chạy trên cả ba nền tảng trước mỗi lần phát hành.
+
+### Giao diện
+
+- Dialog xác nhận trong app thay hộp thoại của hệ điều hành: nút ghi rõ hành động ("Xóa",
+  "Ngắt kết nối"…), thao tác xóa mặc định chọn Hủy, Escape chỉ đóng dialog.
+- Menu chuột phải riêng thay menu của WebView (Back / Reload / Print…): ô nhập có Cắt / Sao chép /
+  Dán / Chọn tất cả, ô mật khẩu không cho sao chép.
+- Checkbox, radio và select theo giao diện tối, giống nhau trên mọi nền tảng (select không còn nền
+  trắng trên Linux).
+- Màn hình SSH Keys ghi đúng kho khóa của hệ điều hành đang dùng.
+
+### Sửa lỗi
+
+- Cài đặt "Giãn dòng" hiện `1.2999999523162842` thay vì `1.3`.
+
+### Giới hạn đã biết
+
+- Installer chưa ký số (SmartScreen trên Windows, Gatekeeper trên macOS có thể cảnh báo).
+- macOS mới được test tự động trên CI, chưa chạy thử trên máy Mac thật; Linux đã cài và chạy thử
+  trên Ubuntu 22.04, chưa thử Fedora và tray trên desktop thật.
+
 ## [0.1.0] - 2026-11-20
 
 Bản phát hành đầu tiên, cho Windows x64 (installer NSIS, chưa ký số).
