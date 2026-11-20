@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm } from "./dialogs.jsx";
 import {
   ArrowLeft,
   ArrowRight,
@@ -102,7 +102,7 @@ export function SyncModal({
       request.delete.length &&
       !(await confirm(
         `Mirror sẽ XÓA VĨNH VIỄN ${request.delete.length} mục chỉ có ở ${direction === "upload" ? "remote" : "local"} (kể cả nội dung thư mục):\n\n${request.delete.slice(0, 12).join("\n")}${request.delete.length > 12 ? "\n…" : ""}\n\nTiếp tục?`,
-        { title: "Xác nhận mirror", kind: "warning" },
+        { title: "Xác nhận mirror", kind: "danger", okLabel: "Mirror và xóa" },
       ))
     )
       return;

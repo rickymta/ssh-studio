@@ -570,6 +570,17 @@ export function osLabel(os) {
   );
 }
 
+/** Where the vault master key lives on each platform (keyring backends). */
+export function credentialStoreLabel(os) {
+  return (
+    {
+      windows: "Windows Credential Manager",
+      macos: "Keychain của macOS",
+      linux: "Secret Service (GNOME Keyring / KWallet)",
+    }[os] || "kho khóa của hệ điều hành"
+  );
+}
+
 /**
  * Terminal clipboard chords. Plain Ctrl+C / Ctrl+V stay with the shell (SIGINT, ^V);
  * Ctrl+Shift+C/V and Ctrl/Shift+Insert copy and paste like other terminals.

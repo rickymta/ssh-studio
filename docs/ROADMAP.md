@@ -138,7 +138,7 @@ Thứ tự đề xuất, mỗi nhóm một commit (Conventional Commits, ví d�
 | Tách giao diện | ✅ `dc8934d`: `src/components/*`, `src/lib.js` + vitest. |
 | B1–B13 | ✅ `09fdd00`. |
 | F1–F7 | ✅ một commit mỗi nhóm (xem tiêu đề từng mục). |
-| F8 | ⚠️ `src-tauri/tauri.signing.conf.json` + `npm run dist:signed` + `docs/RELEASE.md`; chưa ký thật, chưa chạy macOS/Linux. |
+| F8 | ⚠️ Ký số: chỉ cấu hình (`tauri.signing.conf.json`, secret CI), chưa ký thật. Đa nền tảng: Linux đã test + build + cài thử (Docker Ubuntu 22.04); macOS có cấu hình bundle + CI, chưa chạy trên Mac (`docs/RELEASE.md` §4). |
 | `npm test` | ✅ 27 vitest + 47 Rust test (unit + integration trên server giả lập). |
 | `npm run build` | ✅ |
 | `npm run pack` | ✅ build release `ssh-studio.exe` (chưa chạy exe: sẽ dùng workspace/Credential Manager thật của máy). |

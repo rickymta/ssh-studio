@@ -9,11 +9,15 @@
 
 **Một workspace cho terminal SSH, file SFTP và SSH key của nhiều server.**
 
-Ứng dụng desktop Windows quản lý SSH terminal, file SFTP và SSH key. Backend **Rust + Tauri 2**, giao diện **React + xterm.js**. Không có Electron hoặc Node backend trong ứng dụng đóng gói.
+Ứng dụng desktop cho Windows, macOS và Linux, quản lý SSH terminal, file SFTP và SSH key. Backend **Rust + Tauri 2**, giao diện **React + xterm.js**. Không có Electron hoặc Node backend trong ứng dụng đóng gói.
 
 ## Chạy ứng dụng
 
-Yêu cầu Node.js 20.19+ / 22.12+, Rust 1.91.1+ với toolchain MSVC, Visual Studio C++ Build Tools và WebView2 trên Windows.
+Yêu cầu chung: Node.js 20.19+ / 22.12+ và Rust 1.91.1+. Theo nền tảng:
+
+- **Windows**: toolchain MSVC, Visual Studio C++ Build Tools, WebView2.
+- **macOS**: Xcode Command Line Tools (`xcode-select --install`), macOS 10.15+.
+- **Linux** (Debian/Ubuntu): `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev build-essential`, và một Secret Service (GNOME Keyring hoặc KWallet) đang chạy để giữ master key của vault.
 
 ```powershell
 git clone https://github.com/rickymta/ssh-studio.git
@@ -72,14 +76,14 @@ npm start
 
 ## Dữ liệu và bảo vệ key
 
-Tauri lưu `workspace.json` trong thư mục AppData của `dev.sshstudio.desktop` (Windows thường là `%APPDATA%\dev.sshstudio.desktop`). Metadata server, public key và cài đặt không phải bí mật. Private key, mật khẩu đăng nhập đã lưu và mật khẩu proxy được mã hóa bằng AES-256-GCM với nonce ngẫu nhiên; master key được lưu trong Windows Credential Manager, service `dev.sshstudio.desktop`, entry `vault-master-key`. Các bí mật này không được trả về frontend, không xuất hiện trong event hay log.
+Tauri lưu `workspace.json` trong thư mục dữ liệu ứng dụng `dev.sshstudio.desktop`: `%APPDATA%\dev.sshstudio.desktop` trên Windows, `~/Library/Application Support/dev.sshstudio.desktop` trên macOS, `~/.local/share/dev.sshstudio.desktop` trên Linux. Metadata server, public key và cài đặt không phải bí mật. Private key, mật khẩu đăng nhập đã lưu và mật khẩu proxy được mã hóa bằng AES-256-GCM với nonce ngẫu nhiên; master key được lưu trong kho khóa của hệ điều hành (Windows Credential Manager, Keychain của macOS, Secret Service trên Linux), service `dev.sshstudio.desktop`, entry `vault-master-key`. Các bí mật này không được trả về frontend, không xuất hiện trong event hay log.
 
-Key có passphrase được mở khóa lúc nhập, sau đó bản private key trong vault được bảo vệ bởi mã hóa của ứng dụng. Sao chép riêng `workspace.json` sang máy khác không chuyển được khả năng giải mã. Để chuyển máy, dùng **Sao lưu / Khôi phục**: file backup được mã hóa AES-256-GCM bằng khóa dẫn xuất từ mật khẩu của bạn (Argon2id), không phụ thuộc Credential Manager. Quên mật khẩu backup thì không mở được file. Private key chỉ rời vault khi bạn chủ động xuất hoặc sao lưu. Không có đồng bộ cloud hoặc telemetry.
+Key có passphrase được mở khóa lúc nhập, sau đó bản private key trong vault được bảo vệ bởi mã hóa của ứng dụng. Sao chép riêng `workspace.json` sang máy khác không chuyển được khả năng giải mã. Để chuyển máy, dùng **Sao lưu / Khôi phục**: file backup được mã hóa AES-256-GCM bằng khóa dẫn xuất từ mật khẩu của bạn (Argon2id), không phụ thuộc kho khóa của hệ điều hành. Quên mật khẩu backup thì không mở được file. Private key chỉ rời vault khi bạn chủ động xuất hoặc sao lưu. Không có đồng bộ cloud hoặc telemetry.
 
 ## Giới hạn
 
 - Bản build chưa ký số. Cấu hình ký đã chuẩn bị sẵn (`npm run dist:signed`), cần chứng chỉ của chủ dự án — xem [docs/RELEASE.md](docs/RELEASE.md).
-- Windows là nền tảng đã kiểm tra. Code giữ đa nền tảng (Keychain / Secret Service, agent qua `SSH_AUTH_SOCK`), nhưng chưa build và chạy thử trên macOS/Linux.
+- Windows và Linux (Ubuntu 22.04: test, build, cài `.deb` và chạy thử) đã kiểm tra. macOS có cấu hình build và CI nhưng chưa chạy thử trên máy Mac — xem [docs/RELEASE.md](docs/RELEASE.md) §4.
 - SFTP v3 không có rename ghi đè: ghi đè file remote đổi tên file cũ sang `.<tên>.sshstudio-old-…` rồi đưa file mới vào. Nếu mất kết nối đúng lúc đó, file cũ còn lại dưới tên tạm này.
 - Đồng bộ so sánh theo kích thước và thời gian sửa đổi (sai lệch ≤ 2 giây coi là bằng nhau), không so nội dung; symlink được bỏ qua.
 - Trình sửa file không tô màu cú pháp; chỉ mở file UTF-8 tối đa 5 MB.
@@ -95,10 +99,11 @@ npm run dist
 ```
 
 - `npm test`: Rust unit tests và server SSH/SFTP loopback tự tạo, không sử dụng server hay credential thật.
-- `npm run pack`: executable release tại `src-tauri/target/release/ssh-studio.exe`.
-- `npm run dist`: thêm NSIS installer tại `src-tauri/target/release/bundle/nsis/`.
+- `npm run pack`: executable release tại `src-tauri/target/release/ssh-studio(.exe)`.
+- Bản build thử cho cả ba nền tảng không cần tag: GitHub → Actions → **Build installers** → Run workflow; installer nằm trong mục Artifacts của lần chạy.
+- `npm run dist`: installer theo nền tảng đang build, tại `src-tauri/target/release/bundle/`: NSIS (`nsis/`) trên Windows, `.app` + `.dmg` trên macOS, `.deb` + `.rpm` + `.AppImage` trên Linux (cấu hình riêng ở `src-tauri/tauri.macos.conf.json`, `src-tauri/tauri.linux.conf.json`).
 - `npm run dist:signed`: như `dist` nhưng ký số executable và installer (cần chứng chỉ, xem [docs/RELEASE.md](docs/RELEASE.md)).
-- `npm run release -- patch|minor|major|x.y.z`: đổi version ở mọi file, thêm mục [CHANGELOG.md](CHANGELOG.md), commit và tạo tag (không push). Đẩy tag `vX.Y.Z` lên `main` thì GitHub Actions chạy toàn bộ test, build installer Windows và đăng release kèm `SHA256SUMS.txt` (chi tiết ở [docs/RELEASE.md](docs/RELEASE.md)).
+- `npm run release -- patch|minor|major|x.y.z`: đổi version ở mọi file, thêm mục [CHANGELOG.md](CHANGELOG.md), commit và tạo tag (không push). Đẩy tag `vX.Y.Z` lên `main` thì GitHub Actions chạy toàn bộ test trên cả ba nền tảng, build installer Windows / macOS (Apple Silicon và Intel) / Linux và đăng release kèm `SHA256SUMS.txt` (chi tiết ở [docs/RELEASE.md](docs/RELEASE.md)).
 
 Test chạy trên server SSH/SFTP giả lập trong tiến trình, dùng thư mục tạm thật làm ổ đĩa remote: vault và backup (sai mật khẩu, file bị sửa), không lộ secret trong snapshot, nhập PPK, truyền thư mục, xung đột ghi đè / bỏ qua / giữ cả hai, resume sau khi ngắt, sửa file và phát hiện xung đột, đồng bộ, MFA nhiều bước, keyboard-interactive, SSH agent, jump host, proxy SOCKS5 / HTTP, port forwarding -L / -R / -D, host key thay đổi. Phần giao diện có test vitest cho các hàm thuần (chọn nhiều, kế hoạch xung đột, đồng bộ, phím tắt…).
 
@@ -124,7 +129,7 @@ Icon chính kết hợp thư mục và dấu lệnh `>_`, nền xanh đậm và 
 
 | Icon | Nguồn | File xuất |
 | --- | --- | --- |
-| Ứng dụng | [logo.svg](assets/logo.svg) | [PNG 1024 px](assets/exports/app/1024x1024.png), [Windows ICO](src-tauri/icons/icon.ico) |
+| Ứng dụng | [logo.svg](assets/logo.svg) | [PNG 1024 px](assets/exports/app/1024x1024.png), [Windows ICO](src-tauri/icons/icon.ico), [macOS ICNS](src-tauri/icons/icon.icns), [PNG cho Linux](src-tauri/icons/128x128.png) |
 | Status bar | [statusbar.svg](assets/statusbar.svg) | [PNG 16–48 px](assets/exports/statusbar/) |
 
 Icon đã được tích hợp vào sidebar, status bar, khay hệ thống và bộ icon đóng gói của Tauri. Xem [hướng dẫn tái tạo icon](assets/ICONS.md).

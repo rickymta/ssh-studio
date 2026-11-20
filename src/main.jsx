@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm, ContextMenuHost, DialogHost } from "./components/dialogs.jsx";
 import appIcon from "../assets/logo.svg";
 import statusbarIcon from "../assets/statusbar.svg";
 import { HostModal } from "./components/HostModal.jsx";
@@ -60,6 +60,7 @@ import {
   uid,
   cleanError,
   osLabel,
+  credentialStoreLabel,
   restoreSummary,
   retryRequest,
   withDefaults,
@@ -246,7 +247,7 @@ function App() {
           if (
             await confirm(
               "Các phiên terminal sẽ đóng và file đang truyền sẽ bị hủy. Bạn muốn thoát?",
-              { title: "Đóng SSH Studio", kind: "warning" },
+              { title: "Đóng SSH Studio", kind: "warning", okLabel: "Thoát" },
             )
           )
             await getCurrentWindow().destroy();
@@ -260,7 +261,7 @@ function App() {
         busy() &&
         !(await confirm(
           "Các phiên terminal sẽ đóng và file đang truyền sẽ bị hủy. Bạn muốn thoát?",
-          { title: "Thoát SSH Studio", kind: "warning" },
+          { title: "Thoát SSH Studio", kind: "warning", okLabel: "Thoát" },
         ))
       )
         return;
@@ -361,7 +362,7 @@ function App() {
       settings.confirmClose &&
       !(await confirm(
         "Đóng phiên terminal này? Các lệnh đang chạy có thể dừng.",
-        { title: "Ngắt kết nối", kind: "warning" },
+        { title: "Ngắt kết nối", kind: "warning", okLabel: "Ngắt kết nối" },
       ))
     )
       return;
@@ -459,7 +460,7 @@ function App() {
       if (
         await confirm(`Xóa cấu hình “${host.name}”?`, {
           title: "Xóa server",
-          kind: "warning",
+          kind: "danger",
         })
       )
         setData(await call("delete_host", { id: host.id }));
@@ -880,9 +881,9 @@ function App() {
                 <div>
                   <strong>Private key được mã hóa trên máy</strong>
                   <p>
-                    Khóa bảo vệ nằm trong Windows Credential Manager. Chỉ public
-                    key được hiển thị; private key chỉ rời vault khi bạn chủ
-                    động xuất hoặc sao lưu (có mật khẩu).
+                    Khóa bảo vệ nằm trong {credentialStoreLabel(data.os)}. Chỉ
+                    public key được hiển thị; private key chỉ rời vault khi bạn
+                    chủ động xuất hoặc sao lưu (có mật khẩu).
                   </p>
                 </div>
               </div>
@@ -930,7 +931,7 @@ function App() {
                             if (
                               await confirm(
                                 `Xóa key “${key.name}” khỏi thư viện?`,
-                                { kind: "warning", title: "Xóa SSH key" },
+                                { kind: "danger", title: "Xóa SSH key" },
                               )
                             )
                               setData(await call("delete_key", { id: key.id }));
@@ -986,7 +987,11 @@ function App() {
                           if (
                             await confirm(
                               `Quên fingerprint của ${address}? Chỉ thực hiện sau khi xác minh thay đổi với quản trị viên.`,
-                              { kind: "warning", title: "Quên host key" },
+                              {
+                                kind: "danger",
+                                title: "Quên host key",
+                                okLabel: "Quên host",
+                              },
                             )
                           )
                             setData(await call("forget_host", { address }));
@@ -1172,7 +1177,7 @@ function App() {
             if (
               !(await confirm(`Xóa workspace “${workspace.name}”?`, {
                 title: "Xóa workspace",
-                kind: "warning",
+                kind: "danger",
               }))
             )
               return;
@@ -1193,6 +1198,7 @@ function App() {
       {modal?.type === "key" && (
         <KeyModal
           mode={modal.mode}
+          os={data.os}
           close={() => setModal(null)}
           save={async (args) => {
             const result = await call(
@@ -1297,6 +1303,8 @@ function App() {
           </div>
         </Modal>
       )}
+      <DialogHost />
+      <ContextMenuHost />
     </div>
   );
 }

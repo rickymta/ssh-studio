@@ -33,6 +33,7 @@ import {
   withLineEnding,
   nextSelection,
   osLabel,
+  credentialStoreLabel,
   planConflicts,
   retryRequest,
   splitPath,
@@ -444,6 +445,12 @@ describe("labels", () => {
     expect(osLabel("macos")).toBe("macOS");
     expect(osLabel("linux")).toBe("Linux");
     expect(osLabel("")).toBe("Desktop");
+  });
+  it("names the credential store of each platform", () => {
+    expect(credentialStoreLabel("windows")).toBe("Windows Credential Manager");
+    expect(credentialStoreLabel("macos")).toContain("Keychain");
+    expect(credentialStoreLabel("linux")).toContain("Secret Service");
+    expect(credentialStoreLabel("")).toBe("kho khóa của hệ điều hành");
   });
   it("formats sizes", () => {
     expect(size(512)).toBe("512 B");
