@@ -5,6 +5,8 @@
   font-synthesis: none;
   font-size: 14px;
   font-weight: 400;
+  /* Native parts that cannot be restyled (dropdown lists, scrollbars) follow the dark theme. */
+  color-scheme: dark;
   --bg: #10151d;
   --panel: #151c26;
   --line: #26303d;
@@ -2503,4 +2505,301 @@ body.resizing-x .col-resizer::after {
 }
 .settings-shortcuts > .button {
   align-self: flex-start;
+}
+
+/* ── Checkbox & radio (custom, replaces the WebView controls) ───────────────────────── */
+input[type="checkbox"],
+input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  display: inline-grid;
+  place-content: center;
+  border: 1.5px solid #4a5b70;
+  background: #0f1720;
+  cursor: pointer;
+  vertical-align: middle;
+  transition:
+    background-color 0.12s,
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+input[type="checkbox"] {
+  border-radius: 5px;
+}
+input[type="radio"] {
+  border-radius: 50%;
+}
+input[type="checkbox"]::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  transform: scale(0);
+  transition: transform 0.12s ease-out;
+  background: #102a25;
+  /* Check mark. */
+  clip-path: polygon(14% 52%, 0 66%, 38% 100%, 100% 22%, 86% 8%, 38% 70%);
+}
+input[type="radio"]::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: scale(0);
+  transition: transform 0.12s ease-out;
+  background: #102a25;
+}
+input[type="checkbox"]:hover:not(:disabled),
+input[type="radio"]:hover:not(:disabled) {
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px #7ce4c91f;
+}
+input[type="checkbox"]:checked,
+input[type="checkbox"]:indeterminate,
+input[type="radio"]:checked {
+  background: var(--mint);
+  border-color: var(--mint);
+}
+input[type="checkbox"]:checked::before,
+input[type="radio"]:checked::before {
+  transform: scale(1);
+}
+input[type="checkbox"]:indeterminate::before {
+  transform: scale(1);
+  height: 2.5px;
+  clip-path: none;
+  border-radius: 2px;
+}
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+input[type="checkbox"]:disabled,
+input[type="radio"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.check.danger input:checked {
+  background: #e5848d;
+  border-color: #e5848d;
+}
+.check.danger input:checked::before {
+  background: #3a1519;
+}
+.check:has(input:disabled) {
+  cursor: not-allowed;
+  color: #6f7e90;
+}
+/* Radio list: <label className="radio-option"><input type="radio" …/> <span>…</span></label> */
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid #2f3b4b;
+  border-radius: 8px;
+  background: #111923;
+  font-size: 13px;
+  cursor: pointer;
+}
+.radio-option input {
+  margin-top: 1px;
+}
+.radio-option:has(input:checked) {
+  border-color: #3f7d70;
+  background: #142624;
+}
+.radio-option small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ── Confirmation dialog (replaces the native confirm popup) ─────────────────────── */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: #03070dcc;
+  backdrop-filter: blur(4px);
+  animation: confirm-fade 0.12s ease-out;
+}
+.confirm-dialog {
+  width: 440px;
+  max-width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: #151e29;
+  border: 1px solid #394859;
+  border-radius: 13px;
+  box-shadow: 0 30px 90px #000a;
+  animation: confirm-pop 0.14s ease-out;
+}
+.confirm-body {
+  display: flex;
+  gap: 15px;
+  padding: 24px 24px 20px;
+  min-height: 0;
+  overflow: auto;
+}
+.confirm-icon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--mint);
+  background: var(--mint-dark);
+}
+.confirm-dialog.warning .confirm-icon {
+  color: #f0c97c;
+  background: #3a3020;
+}
+.confirm-dialog.danger .confirm-icon {
+  color: #f09aa2;
+  background: #3d2228;
+}
+.confirm-body h2 {
+  margin: 2px 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+}
+.confirm-body p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #b3c0cf;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 15px 24px;
+  border-top: 1px solid #2a3745;
+  background: #121a25;
+  border-radius: 0 0 13px 13px;
+}
+.confirm-actions .button {
+  min-width: 84px;
+  justify-content: center;
+}
+.button.danger-solid {
+  background: #e5848d;
+  border-color: #e5848d;
+  color: #2c0e12;
+  font-weight: 650;
+}
+.button.danger-solid:hover:not(:disabled) {
+  background: #f0a2a9;
+}
+@keyframes confirm-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes confirm-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+/* ── Context menu (replaces the WebView right-click menu) ────────────────────────── */
+.context-menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 190px;
+  padding: 5px;
+  background: #18222f;
+  border: 1px solid #364558;
+  border-radius: 9px;
+  box-shadow: 0 14px 40px #000b;
+  animation: confirm-fade 0.08s ease-out;
+}
+.context-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+}
+.context-menu button span {
+  flex: 1;
+}
+.context-menu button:hover:not(:disabled),
+.context-menu button:focus-visible {
+  background: #253344;
+  outline: none;
+}
+.context-menu button:disabled {
+  color: #5d6b7c;
+  cursor: default;
+}
+.context-menu kbd {
+  font: 11px Inter, "Segoe UI", sans-serif;
+  color: #6f8197;
+  background: none;
+  border: 0;
+}
+.context-divider {
+  height: 1px;
+  margin: 5px 4px;
+  background: #2b3848;
+}
+@media (prefers-reduced-motion: reduce) {
+  .confirm-backdrop,
+  .confirm-dialog,
+  .context-menu {
+    animation: none;
+  }
+}
+
+/* ── Select (custom box; WebKitGTK on Linux otherwise draws a light GTK combo) ───────── */
+select:not([multiple]) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  background-color: #111923;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238794a7' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  color: #dce3eb;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+select:not([multiple]):hover:not(:disabled) {
+  border-color: #4a5b70;
+}
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+select option {
+  color: #dce3eb;
+  background: #16202c;
 }

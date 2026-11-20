@@ -65,7 +65,7 @@ export function ActivityModal({ close, confirm }) {
             if (
               await confirm("Xóa toàn bộ nhật ký hoạt động?", {
                 title: "Xóa nhật ký",
-                kind: "warning",
+                kind: "danger",
               })
             )
               clearActivity();

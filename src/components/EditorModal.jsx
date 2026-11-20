@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm } from "./dialogs.jsx";
 import { LoaderCircle, RotateCcw, Save, TriangleAlert } from "lucide-react";
 import { call, cleanError, lineEnding, size, withLineEnding } from "../lib.js";
 import { Button, Modal } from "./ui.jsx";
@@ -66,6 +66,7 @@ export function EditorModal({ session, path, notify, close }) {
       !(await confirm("Đóng trình sửa và bỏ các thay đổi chưa lưu?", {
         title: "Chưa lưu",
         kind: "warning",
+        okLabel: "Bỏ thay đổi",
       }))
     )
       return;
@@ -77,6 +78,7 @@ export function EditorModal({ session, path, notify, close }) {
       !(await confirm("Tải lại từ server và bỏ các thay đổi của bạn?", {
         title: "Tải lại",
         kind: "warning",
+        okLabel: "Tải lại",
       }))
     )
       return;

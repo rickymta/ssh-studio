@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm } from "./dialogs.jsx";
 import { FilePane } from "./FilePane.jsx";
 import { NameModal } from "./NameModal.jsx";
 import { ConflictModal } from "./ConflictModal.jsx";
@@ -125,7 +125,7 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
       if (
         !(await confirm(
           `Xóa vĩnh viễn ${label}${detail}? Không thể hoàn tác.`,
-          { title: "Xóa", kind: "warning" },
+          { title: "Xóa", kind: "danger" },
         ))
       )
         return;
