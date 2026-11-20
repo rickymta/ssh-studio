@@ -89,54 +89,72 @@ biến môi trường / secret của CI, **không** ghi vào file cấu hình ha
 
 ## 2. macOS
 
-Code đã tách theo nền tảng; những điểm cần xác minh trên máy Mac:
+Cấu hình riêng: [`src-tauri/tauri.macos.conf.json`](../src-tauri/tauri.macos.conf.json) (bundle `app` +
+`dmg`, macOS 10.15+). Tauri tự gộp file này khi build trên Mac.
 
 | Thành phần | Trên macOS |
 | --- | --- |
-| Vault master key | `keyring` (mặc định bật Keychain): mục `dev.sshstudio.desktop` / `vault-master-key` trong login keychain. |
+| Vault master key | `keyring` (Keychain): mục `dev.sshstudio.desktop` / `vault-master-key` trong login keychain. |
 | SSH agent | `SSH_AUTH_SOCK` (ssh-agent của hệ thống / 1Password / Secretive). |
 | Ghi file tải về | Fallback B2 (`rename` khi không tạo được hard link) dùng chung cho mọi nền tảng. |
 | Xuất private key | File được tạo với quyền `0600`. |
-| Khay hệ thống | Biểu tượng trên menu bar. Icon trắng đơn sắc ở `assets/exports/statusbar`; nên thêm `.icon_as_template(true)` trong `src-tauri/src/tray.rs` để icon đổi màu theo giao diện sáng/tối. |
+| Khay hệ thống | Biểu tượng trên menu bar, dùng chế độ template (`icon_as_template`) nên tự đổi màu theo menu bar sáng/tối. |
 
-Build và ký:
+Build trên máy Mac (cần Xcode Command Line Tools):
 
 ```bash
 npm ci
-npm run tauri -- build --bundles app,dmg
+npm run dist                     # .app và .dmg tại src-tauri/target/release/bundle/
 ```
 
-Để ký và notarize, thêm vào `tauri.signing.conf.json` (hoặc một file riêng cho macOS):
+Không có máy Mac: GitHub → Actions → **Build installers** → Run workflow; hai bản `dmg` (Apple Silicon
+`macos-aarch64`, Intel `macos-x64`) nằm trong Artifacts của lần chạy.
 
-```json
-{ "bundle": { "macOS": { "signingIdentity": "Developer ID Application: <Tên> (<TEAMID>)" } } }
-```
+Bản không ký: lần đầu mở, Gatekeeper chặn. Chuột phải vào app → **Open**, hoặc
+`xattr -dr com.apple.quarantine "/Applications/SSH Studio.app"`.
 
-và đặt biến môi trường `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), `APPLE_TEAM_ID` khi build.
-Không commit các giá trị này.
+Ký và notarize trên CI (tùy chọn, `release.yml` đã đọc sẵn): thêm secret `APPLE_CERTIFICATE` (file `.p12`
+mã hóa base64), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`
+(`Developer ID Application: <Tên> (<TEAMID>)`) để ký; thêm `APPLE_ID`, `APPLE_PASSWORD` (app-specific
+password), `APPLE_TEAM_ID` để notarize. Thiếu một phần của bộ nào thì bộ đó bị bỏ qua và bản build không
+ký thay vì lỗi. Không commit các giá trị này.
 
 ## 3. Linux
+
+Cấu hình riêng: [`src-tauri/tauri.linux.conf.json`](../src-tauri/tauri.linux.conf.json) (bundle `deb`,
+`rpm`, `AppImage`; gói `.deb` / `.rpm` khuyến nghị `gnome-keyring`).
 
 | Thành phần | Trên Linux |
 | --- | --- |
 | Vault master key | Secret Service qua D-Bus (GNOME Keyring, KWallet…). Desktop không có Secret Service thì app không mở được vault; cần cài và mở khóa keyring. |
 | SSH agent | `SSH_AUTH_SOCK`. |
-| Khay hệ thống | Cần `libayatana-appindicator3` (hoặc `libappindicator3`). Không tạo được tray thì app vẫn chạy, chỉ ghi lỗi ra stderr; khi đó đừng bật "thu về khay". |
+| Khay hệ thống | Cần `libayatana-appindicator3-1` (gói `.deb` đã khai báo phụ thuộc). Không tạo được tray thì app vẫn chạy, chỉ ghi lỗi ra stderr; khi đó đừng bật "thu về khay". |
 | WebView | WebKitGTK 4.1. |
+| Dữ liệu | `~/.local/share/dev.sshstudio.desktop/workspace.json`. |
 
 Thư viện build (Debian/Ubuntu):
 
 ```bash
-sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev \
-  libssl-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev build-essential curl wget file libxdo-dev   libssl-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev
 npm ci
-npm run tauri -- build --bundles deb,appimage
+npm run dist                     # deb, rpm, AppImage tại src-tauri/target/release/bundle/
 ```
 
-## 4. Việc còn lại trước khi phát hành đa nền tảng
+Build trên Windows qua Docker (cách đã dùng để kiểm tra): image `ubuntu:22.04` cài các gói trên + Node 22 +
+Rust stable, chạy `npm ci && npm run dist` trong container với `APPIMAGE_EXTRACT_AND_RUN=1` (container
+không có FUSE). Build trên Ubuntu 22.04 để glibc đủ cũ cho nhiều distro.
 
-- Chạy `npm test` trên macOS và Linux (test agent dùng Unix socket đã có nhánh `cfg(unix)`, chưa chạy).
-- Kiểm thử thủ công: kết nối, SFTP, kéo thả từ Finder / file manager, tray, ký và cài đặt.
-- Thêm icon `.icns` / `.png` (hiện chỉ có `icons/icon.ico`), rồi thêm `macos-latest` và `ubuntu-22.04`
-  vào ma trận `check` của `ci.yml` và `build` của `release.yml` (git-studio có sẵn mẫu cho dmg, deb,
-  rpm, AppImage).
+`cargo test` trên Linux cần một Secret Service; trên máy không có desktop (CI, container):
+
+```bash
+dbus-run-session -- bash -c 'echo -n test | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+  cargo test --manifest-path src-tauri/Cargo.toml'
+```
+
+## 4. Trạng thái đa nền tảng (2026-11-20)
+
+| Nền tảng | Đã kiểm tra | Chưa kiểm tra |
+| --- | --- | --- |
+| Windows x64 | fmt, clippy, 54 test Rust, vitest, build NSIS. | — |
+| Linux x64 | Trong Docker Ubuntu 22.04: fmt, clippy `-D warnings`, **54/54 test Rust** (vault qua gnome-keyring), vitest, build `.deb` / `.rpm` / `.AppImage`. Cài `.deb` vào Ubuntu 22.04 sạch: đủ thư viện, có icon và `.desktop`, app chạy dưới Xvfb, giao diện (WebKitGTK 2.50) hiển thị đúng. | Desktop thật (tray, kéo thả từ file manager, KWallet), Fedora với `.rpm`. |
+| macOS | Cấu hình bundle, icon `.icns`, tray template, CI `macos-latest` (test + build dmg). | Chưa có lần chạy CI nào và chưa có máy Mac chạy thử: cần chạy workflow **CI** / **Build installers** và kiểm tra thủ công (Keychain, Finder kéo thả, Gatekeeper). |

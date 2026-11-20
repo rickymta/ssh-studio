@@ -33,11 +33,15 @@ jobs:
           node-version: 22
       - run: node scripts/release.mjs --check
 
-  # Windows only: macOS / Linux are not built or tested yet (docs/RELEASE.md §2–4).
   check:
-    name: Check (windows-latest)
-    runs-on: windows-latest
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-22.04: same glibc as the Linux release build.
+        os: [windows-latest, macos-latest, ubuntu-22.04]
     defaults:
       run:
         shell: bash
@@ -45,6 +49,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
+
+      - name: Install Linux dependencies for Tauri 2
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev             librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev dbus-x11 gnome-keyring
 
       - uses: actions/setup-node@v5
         with:
@@ -66,6 +76,14 @@ jobs:
 
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-      # Loopback SSH / SFTP server and the Windows Credential Manager of the runner; no real
-      # servers or credentials. --no-fail-fast reports every failing test in one run.
-      - run: cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast
+      # Loopback SSH / SFTP server and the credential store of the runner (Credential Manager,
+      # Keychain, or a throwaway gnome-keyring Secret Service on Linux); no real servers or
+      # credentials. --no-fail-fast reports every failing test in one run.
+      - name: cargo test
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            dbus-run-session -- bash -c 'echo -n ci | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+              cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast'
+          else
+            cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast
+          fi

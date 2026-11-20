@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": [
+      "deb",
+      "rpm",
+      "appimage"
+    ],
+    "linux": {
+      "deb": {
+        "section": "net",
+        "recommends": [
+          "gnome-keyring"
+        ]
+      },
+      "rpm": {
+        "recommends": [
+          "gnome-keyring"
+        ]
+      }
+    }
+  }
+}

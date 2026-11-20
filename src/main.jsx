@@ -60,6 +60,7 @@ import {
   uid,
   cleanError,
   osLabel,
+  credentialStoreLabel,
   restoreSummary,
   retryRequest,
   withDefaults,
@@ -880,7 +881,7 @@ function App() {
                 <div>
                   <strong>Private key được mã hóa trên máy</strong>
                   <p>
-                    Khóa bảo vệ nằm trong Windows Credential Manager. Chỉ public
+                    Khóa bảo vệ nằm trong {credentialStoreLabel(data.os)}. Chỉ public
                     key được hiển thị; private key chỉ rời vault khi bạn chủ
                     động xuất hoặc sao lưu (có mật khẩu).
                   </p>
@@ -1193,6 +1194,7 @@ function App() {
       {modal?.type === "key" && (
         <KeyModal
           mode={modal.mode}
+          os={data.os}
           close={() => setModal(null)}
           save={async (args) => {
             const result = await call(

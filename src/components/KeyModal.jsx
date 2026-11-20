@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { KeyRound, FolderOpen, ShieldCheck, LoaderCircle } from "lucide-react";
-import { cleanError } from "../lib.js";
+import { cleanError, credentialStoreLabel } from "../lib.js";
 import { Button, Modal, Field } from "./ui.jsx";
 
-export function KeyModal({ mode, close, save }) {
+export function KeyModal({ mode, os, close, save }) {
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [passphrase, setPassphrase] = useState("");
@@ -75,8 +75,8 @@ export function KeyModal({ mode, close, save }) {
           )}
           <p className="form-note">
             <ShieldCheck size={18} />
-            Private key sẽ được mã hóa bằng AES-256-GCM, khóa bảo vệ lưu trong
-            Windows Credential Manager.
+            Private key sẽ được mã hóa bằng AES-256-GCM, khóa bảo vệ lưu trong{" "}
+            {credentialStoreLabel(os)}.
           </p>
           {error && <div className="inline-error">{error}</div>}
         </div>

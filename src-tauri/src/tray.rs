@@ -23,6 +23,8 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .icon(Image::from_bytes(include_bytes!(
             "../../assets/exports/statusbar/32x32.png"
         ))?)
+        // macOS: a template image follows the light / dark menu bar (only the alpha is used).
+        .icon_as_template(cfg!(target_os = "macos"))
         .tooltip("SSH Studio")
         .menu(&menu)
         .show_menu_on_left_click(false)
