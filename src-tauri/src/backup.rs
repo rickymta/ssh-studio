@@ -66,6 +66,9 @@ struct Contents {
     #[serde(default)]
     login_passwords: BTreeMap<String, String>,
     known_hosts: BTreeMap<String, String>,
+    /// Workspaces (older backups have none: their servers go into the active workspace).
+    #[serde(default)]
+    workspaces: Vec<crate::workspace::Workspace>,
 }
 
 fn derive(password: &str, kdf: &Kdf) -> anyhow::Result<[u8; 32]> {
@@ -172,6 +175,7 @@ pub fn create(store: &Store, path: &Path, password: &str) -> anyhow::Result<Valu
         proxy_passwords,
         login_passwords,
         known_hosts: store.data.known_hosts.clone(),
+        workspaces: store.data.workspaces.clone(),
     };
     let mut salt = [0u8; 16];
     let mut nonce = [0u8; 12];
@@ -336,6 +340,28 @@ fn merge(store: &mut Store, contents: Contents, replace: &[String]) -> anyhow::R
         key_ids.insert(backup.id, id);
         bump(&mut report, "keysAdded");
     }
+    // Workspaces by id, then by name; servers of unknown workspaces join the active one,
+    // which stays active (creating a workspace would otherwise switch to it).
+    let active = store.data.active_workspace.clone();
+    let mut workspace_ids: HashMap<String, String> = HashMap::new();
+    for workspace in contents.workspaces {
+        let existing = store.data.workspaces.iter().find(|w| {
+            w.id == workspace.id || w.name.to_lowercase() == workspace.name.trim().to_lowercase()
+        });
+        let id = match existing {
+            Some(w) => w.id.clone(),
+            None => {
+                let mut copy = workspace.clone();
+                copy.id = String::new();
+                match crate::workspace::save(&mut store.data, copy) {
+                    Ok(()) => store.data.workspaces.last().unwrap().id.clone(),
+                    Err(_) => continue,
+                }
+            }
+        };
+        workspace_ids.insert(workspace.id, id);
+    }
+    store.data.active_workspace = active.clone();
     let incoming: Vec<String> = contents.hosts.iter().map(|h| h.id.clone()).collect();
     for mut host in contents.hosts {
         if store.data.hosts.iter().any(|h| h.id == host.id) {
@@ -345,6 +371,10 @@ fn merge(store: &mut Store, contents: Contents, replace: &[String]) -> anyhow::R
         if let Some(id) = key_ids.get(&host.key_id) {
             host.key_id = id.clone();
         }
+        host.workspace_id = workspace_ids
+            .get(&host.workspace_id)
+            .cloned()
+            .unwrap_or(active.clone());
         host.proxy.password = None;
         host.proxy.secret = match contents.proxy_passwords.get(&host.id) {
             Some(password) if host.proxy.enabled() => store::seal(password.as_bytes())?,
@@ -385,6 +415,7 @@ fn merge(store: &mut Store, contents: Contents, replace: &[String]) -> anyhow::R
             Some(_) => bump(&mut report, "knownKept"),
         }
     }
+    crate::workspace::normalize(&mut store.data);
     Ok(report)
 }
 
@@ -448,6 +479,54 @@ mod tests {
         other.save().unwrap();
         let disk = std::fs::read_to_string(dir.path().join("b/workspace.json")).unwrap();
         assert!(!disk.contains("login-secret-pw"));
+    }
+
+    #[test]
+    fn workspaces_are_merged_by_name_without_switching_the_active_one() {
+        use crate::workspace::{self, Workspace};
+        let _vault = VaultGuard::new();
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, _) = sample(&dir.path().join("a"));
+        for name in ["Prod", "Lab"] {
+            let ws = Workspace {
+                id: String::new(),
+                name: name.into(),
+                color: "red".into(),
+            };
+            workspace::save(&mut store.data, ws).unwrap();
+        }
+        let prod = store.data.workspaces[1].id.clone();
+        let lab = store.data.workspaces[2].id.clone();
+        let mut db = store.data.hosts[0].clone();
+        db.id = "db".into();
+        db.workspace_id = lab;
+        store.data.hosts[0].workspace_id = prod;
+        store.data.hosts.push(db);
+        let file = dir.path().join("vault.sshstudio-backup");
+        create(&store, &file, "correct horse").unwrap();
+
+        let mut other = Store::load(dir.path().join("b")).unwrap();
+        let ws = Workspace {
+            id: String::new(),
+            name: "prod".into(),
+            color: "blue".into(),
+        };
+        workspace::save(&mut other.data, ws).unwrap();
+        let local_prod = other.data.active_workspace.clone();
+        workspace::activate(&mut other.data, workspace::DEFAULT_ID).unwrap();
+        restore(&mut other, &file, "correct horse", &[]).unwrap();
+        assert_eq!(other.data.active_workspace, workspace::DEFAULT_ID);
+        let names: Vec<_> = other
+            .data
+            .workspaces
+            .iter()
+            .map(|w| w.name.as_str())
+            .collect();
+        assert_eq!(names, ["Cá nhân", "prod", "Lab"]);
+        let web = other.data.hosts.iter().find(|h| h.id == "web").unwrap();
+        assert_eq!(web.workspace_id, local_prod);
+        let db = other.data.hosts.iter().find(|h| h.id == "db").unwrap();
+        assert_eq!(db.workspace_id, other.data.workspaces[2].id);
     }
 
     #[test]

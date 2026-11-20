@@ -28,6 +28,7 @@ npm start
 
 **Server & kết nối**
 - Thêm, sửa, xóa server; tìm theo tên/IP/username (Ctrl+K); phân nhóm theo môi trường hoặc dự án.
+- Workspace: gom server theo khách hàng / dự án (tên, màu); đổi workspace ở góc trên sidebar, server và nhóm hiển thị theo workspace đang chọn. Xóa workspace sẽ chuyển server sang workspace khác; sao lưu / khôi phục giữ nguyên workspace (gộp theo tên).
 - Xác thực bằng password, private key, SSH agent (Windows OpenSSH agent / Pageant, `SSH_AUTH_SOCK` trên Unix) hoặc keyboard-interactive / MFA (OTP), kể cả chuỗi nhiều bước (key rồi OTP). Password được hỏi khi kết nối, hoặc lưu mã hóa trong vault nếu bạn chọn “Lưu mật khẩu”; mã OTP không bao giờ được lưu.
 - Jump host (ProxyJump, cho phép chuỗi nhiều bước, chặn vòng lặp) và proxy SOCKS5 / HTTP CONNECT. Mật khẩu proxy nằm trong vault mã hóa.
 - Port forwarding Local (-L), Remote (-R) và Dynamic SOCKS5 (-D) trong tab **Ports** của phiên; forward đã lưu tự bật khi kết nối.

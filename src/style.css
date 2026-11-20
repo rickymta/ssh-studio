@@ -120,24 +120,167 @@ small {
   margin-top: 4px;
   color: #77869a;
 }
+.workspace-switcher {
+  position: relative;
+  margin: 31px 3px 29px;
+}
 .workspace-label {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 9px;
-  margin: 31px 3px 29px;
   padding: 12px 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: none;
   font-size: 13px;
+  text-align: left;
+}
+.workspace-label:hover,
+.workspace-label[aria-expanded="true"] {
+  background: #131b26;
+  border-color: #33414f;
+}
+.workspace-label > div {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .workspace-label small {
   display: block;
   font-size: 12px;
   margin-top: 3px;
+  color: var(--muted);
 }
 .workspace-label > svg {
   margin-left: auto;
   color: #809087;
+}
+.workspace-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  min-width: 240px;
+  padding: 6px;
+  background: #151c26;
+  border: 1px solid #2f3b4a;
+  border-radius: 9px;
+  box-shadow: 0 16px 40px #0009;
+}
+.workspace-menu-title {
+  padding: 6px 8px 4px;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  font-weight: 650;
+  color: #68788e;
+}
+.workspace-item {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+.workspace-item:hover,
+.workspace-item.active {
+  background: #1d2733;
+}
+.workspace-item > button:first-child {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  background: none;
+  border: 0;
+  font-size: 13px;
+  text-align: left;
+}
+.workspace-item > button:first-child span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-item small {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+.workspace-item > button:first-child > svg {
+  color: var(--mint);
+}
+.workspace-edit {
+  background: none;
+  border: 0;
+  padding: 6px 8px;
+  color: #7d8da1;
+  opacity: 0;
+}
+.workspace-item:hover .workspace-edit,
+.workspace-edit:focus-visible {
+  opacity: 1;
+}
+.workspace-edit:hover {
+  color: #dce3eb;
+}
+.workspace-new {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 8px;
+  border: 0;
+  border-top: 1px solid #263140;
+  border-radius: 0 0 6px 6px;
+  background: none;
+  font-size: 13px;
+  color: var(--mint);
+}
+.workspace-new:hover {
+  background: #1d2733;
+}
+.color-swatches {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.color-swatches button {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 0;
+}
+.color-swatches button.selected {
+  outline: 2px solid #dce3eb;
+  outline-offset: 2px;
+}
+.workspace-danger {
+  padding: 12px;
+  border: 1px solid #4a2f36;
+  border-radius: 7px;
+  font-size: 13px;
+}
+.workspace-danger p {
+  margin: 6px 0 10px;
+  color: var(--muted);
+}
+.workspace-danger-row {
+  display: flex;
+  gap: 8px;
+}
+.workspace-danger-row select {
+  flex: 1;
+}
+.button.danger {
+  color: #f3b8bd;
+  border-color: #69404a;
+  background: #3a252b;
+}
+.button.danger:hover:not(:disabled) {
+  background: #4a2d34;
 }
 .avatar {
   width: 28px;

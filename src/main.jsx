@@ -6,6 +6,10 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import appIcon from "../assets/logo.svg";
 import statusbarIcon from "../assets/statusbar.svg";
 import { HostModal } from "./components/HostModal.jsx";
+import {
+  WorkspaceModal,
+  WorkspaceSwitcher,
+} from "./components/WorkspaceSwitcher.jsx";
 import { AuthPromptModal } from "./components/AuthPromptModal.jsx";
 import { KeyModal } from "./components/KeyModal.jsx";
 import { SessionPane } from "./components/SessionPane.jsx";
@@ -57,6 +61,7 @@ import {
   browserKey,
   cycleTab,
   zoomFont,
+  workspaceView,
 } from "./lib.js";
 import { Button, IconButton, Modal } from "./components/ui.jsx";
 
@@ -376,18 +381,24 @@ function App() {
       window.removeEventListener("keydown", handler);
     };
   }, []);
-  const filtered = data.hosts.filter(
+  const view = workspaceView(data);
+  const filtered = view.hosts.filter(
     (h) =>
       (group === "all" || h.group === group) &&
       `${h.name} ${h.host} ${h.username}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
-  const groups = [...new Set(data.hosts.map((h) => h.group))];
+  const groups = [...new Set(view.hosts.map((h) => h.group))];
   // A group filter whose last server was deleted or moved falls back to "all".
   useEffect(() => {
     if (group !== "all" && !groups.includes(group)) setGroup("all");
-  }, [data.hosts, group]);
+  }, [data.hosts, data.activeWorkspace, group]);
+  const activateWorkspace = (id) =>
+    run(async () => {
+      setData(await call("activate_workspace", { id }));
+      setPage("hosts");
+    });
   const onDeleteHost = (host) =>
     run(async () => {
       if (
@@ -412,13 +423,11 @@ function App() {
             SSH Studio<small>YOUR SERVER WORKSPACE</small>
           </div>
         </div>
-        <div className="workspace-label">
-          <span className="avatar">P</span>
-          <div>
-            Personal workspace<small>Lưu trên máy của bạn</small>
-          </div>
-          <LockKeyhole size={14} />
-        </div>
+        <WorkspaceSwitcher
+          view={view}
+          activate={activateWorkspace}
+          edit={(workspace) => setModal({ type: "workspace", workspace })}
+        />
         <div className="nav-label">WORKSPACE</div>
         <button
           className={`nav-item ${page === "hosts" ? "active" : ""}`}
@@ -428,7 +437,7 @@ function App() {
           }}
         >
           <Server size={18} />
-          Servers<span className="count">{data.hosts.length}</span>
+          Servers<span className="count">{view.hosts.length}</span>
         </button>
         <button
           className={`nav-item ${page === "keys" ? "active" : ""}`}
@@ -465,7 +474,7 @@ function App() {
               <Folder size={17} />
               {g}
               <span className="count">
-                {data.hosts.filter((h) => h.group === g).length}
+                {view.hosts.filter((h) => h.group === g).length}
               </span>
             </button>
           ))
@@ -506,7 +515,7 @@ function App() {
       <main>
         <header className="topbar">
           <div className="breadcrumb">
-            <span>Workspace</span>
+            <span>{view.active.name}</span>
             <ChevronRight size={14} />
             <strong>
               {page === "hosts"
@@ -571,7 +580,7 @@ function App() {
                   <h1>
                     {group === "all" ? "Servers" : group}
                     <span>
-                      {group === "all" ? data.hosts.length : filtered.length}
+                      {group === "all" ? view.hosts.length : filtered.length}
                     </span>
                   </h1>
                   <p>
@@ -633,7 +642,7 @@ function App() {
                   <LayoutGrid size={17} />
                 </div>
               </div>
-              {data.hosts.length === 0 ? (
+              {view.hosts.length === 0 ? (
                 <div className="welcome">
                   <div className="welcome-art">
                     <span className="orbit orbit-one" />
@@ -1033,6 +1042,8 @@ function App() {
           host={modal.host}
           hosts={data.hosts}
           keys={data.keys}
+          workspaces={view.workspaces}
+          workspaceId={view.active.id}
           close={() => setModal(null)}
           save={(host) =>
             run(async () => {
@@ -1061,6 +1072,37 @@ function App() {
               await call("auth_respond", { id, answers, remember });
             })
           }
+        />
+      )}
+      {modal?.type === "workspace" && (
+        <WorkspaceModal
+          workspace={modal.workspace}
+          view={view}
+          close={() => setModal(null)}
+          save={async (workspace) => {
+            setData(await call("save_workspace", { workspace }));
+            setModal(null);
+            setPage("hosts");
+            notify(
+              workspace.id
+                ? "Đã lưu workspace."
+                : `Đã tạo và chuyển sang workspace “${workspace.name.trim()}”.`,
+            );
+          }}
+          remove={async (workspace, moveTo) => {
+            if (
+              !(await confirm(`Xóa workspace “${workspace.name}”?`, {
+                title: "Xóa workspace",
+                kind: "warning",
+              }))
+            )
+              return;
+            setData(
+              await call("delete_workspace", { id: workspace.id, moveTo }),
+            );
+            setModal(null);
+            notify("Đã xóa workspace.");
+          }}
         />
       )}
       {modal?.type === "key" && (

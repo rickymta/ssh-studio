@@ -428,6 +428,45 @@ export function browserKey(e) {
     BROWSER_CTRL_KEYS.has(key.toLowerCase())
   );
 }
+/** Workspace accent colours, same order as `workspace::COLORS` in the backend. */
+export const WORKSPACE_COLORS = {
+  mint: "#7ce4c9",
+  blue: "#6aa8ff",
+  violet: "#a78bfa",
+  pink: "#f472b6",
+  orange: "#fb923c",
+  yellow: "#facc15",
+  red: "#f87171",
+  slate: "#94a3b8",
+};
+/**
+ * Workspaces and the servers of the active one. Without a backend (browser preview) there
+ * is a single implicit workspace holding every server.
+ */
+export function workspaceView(data) {
+  const workspaces = data.workspaces?.length
+    ? data.workspaces
+    : [{ id: "personal", name: "Cá nhân", color: "mint" }];
+  const active =
+    workspaces.find((w) => w.id === data.activeWorkspace) || workspaces[0];
+  const known = new Set(workspaces.map((w) => w.id));
+  const inWorkspace = (h) =>
+    known.has(h.workspaceId)
+      ? h.workspaceId === active.id
+      : active.id === workspaces[0].id;
+  const counts = Object.fromEntries(workspaces.map((w) => [w.id, 0]));
+  for (const h of data.hosts || [])
+    counts[known.has(h.workspaceId) ? h.workspaceId : workspaces[0].id]++;
+  return {
+    workspaces,
+    active,
+    hosts: (data.hosts || []).filter(inWorkspace),
+    counts,
+  };
+}
+/** Initial shown in a workspace avatar. */
+export const workspaceInitial = (name) =>
+  ([...(name || "").trim()][0] || "W").toUpperCase();
 /** Index of the tab after `active` when cycling with Ctrl+Tab / Ctrl+Shift+Tab. */
 export function cycleTab(ids, active, step) {
   if (!ids.length) return null;

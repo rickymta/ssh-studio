@@ -7,6 +7,8 @@ import {
   defaultSettings,
   shortcut,
   browserKey,
+  workspaceView,
+  workspaceInitial,
   terminalOptions,
   echoMeter,
   normalizeLayout,
@@ -468,5 +470,35 @@ describe("browserKey", () => {
     );
     expect(browserKey(down("ArrowLeft", { ctrlKey: true }))).toBe(false);
     expect(browserKey({ type: "keyup", key: "F5" })).toBe(false);
+  });
+});
+
+describe("workspaceView", () => {
+  const hosts = [
+    { id: "a", workspaceId: "personal" },
+    { id: "b", workspaceId: "prod" },
+    { id: "c", workspaceId: "" },
+  ];
+  it("falls back to one implicit workspace without a backend", () => {
+    const view = workspaceView({ hosts });
+    expect(view.active.id).toBe("personal");
+    expect(view.hosts.map((h) => h.id)).toEqual(["a", "b", "c"]);
+  });
+  it("shows the servers of the active workspace and counts every workspace", () => {
+    const workspaces = [
+      { id: "personal", name: "Cá nhân" },
+      { id: "prod", name: "Prod" },
+    ];
+    const view = workspaceView({ hosts, workspaces, activeWorkspace: "prod" });
+    expect(view.active.name).toBe("Prod");
+    expect(view.hosts.map((h) => h.id)).toEqual(["b"]);
+    expect(view.counts).toEqual({ personal: 2, prod: 1 });
+    expect(
+      workspaceView({ hosts, workspaces, activeWorkspace: "x" }).active.id,
+    ).toBe("personal");
+  });
+  it("takes the first letter of the name", () => {
+    expect(workspaceInitial(" ánh")).toBe("Á");
+    expect(workspaceInitial("")).toBe("W");
   });
 });

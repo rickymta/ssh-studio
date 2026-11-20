@@ -16,6 +16,9 @@ pub struct Host {
     pub port: u16,
     pub username: String,
     pub group: String,
+    /// Workspace the server belongs to (older files: moved into the default workspace).
+    #[serde(default)]
+    pub workspace_id: String,
     /// `password` | `key` | `agent` | `interactive` (keyboard-interactive / MFA).
     pub auth: String,
     pub key_id: String,
@@ -169,6 +172,12 @@ pub struct Data {
     pub hosts: Vec<Host>,
     pub keys: Vec<Key>,
     pub known_hosts: BTreeMap<String, String>,
+    /// Named groups of servers; never empty after `workspace::normalize`.
+    #[serde(default)]
+    pub workspaces: Vec<crate::workspace::Workspace>,
+    /// Workspace shown in the sidebar.
+    #[serde(default)]
+    pub active_workspace: String,
     /// Older workspace files have no settings; they start with the defaults (F7).
     #[serde(default)]
     pub settings: Settings,
@@ -255,7 +264,7 @@ impl Store {
         std::fs::create_dir_all(&directory)?;
         let file = directory.join("workspace.json");
         let mut recovered = None;
-        let data = if file.exists() {
+        let mut data = if file.exists() {
             let bytes = std::fs::read(&file)?;
             match serde_json::from_slice(&bytes) {
                 Ok(data) => data,
@@ -274,6 +283,7 @@ impl Store {
         } else {
             Data::default()
         };
+        crate::workspace::normalize(&mut data);
         Ok(Self {
             data,
             directory,

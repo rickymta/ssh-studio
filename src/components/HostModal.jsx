@@ -28,7 +28,15 @@ const defaultPorts = { socks5: 1080, http: 3128 };
 /** Methods that can use a remembered login password (mirrors `store::remembers_password`). */
 const rememberable = (auth) => auth === "password" || auth === "interactive";
 
-export function HostModal({ host, hosts = [], keys, close, save }) {
+export function HostModal({
+  host,
+  hosts = [],
+  keys,
+  workspaces = [],
+  workspaceId = "",
+  close,
+  save,
+}) {
   const [form, setForm] = useState(() => {
     const base = host || {
       id: uid(),
@@ -42,6 +50,9 @@ export function HostModal({ host, hosts = [], keys, close, save }) {
     };
     return {
       ...base,
+      workspaceId: workspaces.some((w) => w.id === base.workspaceId)
+        ? base.workspaceId
+        : workspaceId,
       password: "",
       forgetPassword: false,
       jumpHostId: base.jumpHostId || "",
@@ -142,6 +153,17 @@ export function HostModal({ host, hosts = [], keys, close, save }) {
               {...field("group")}
             />
           </div>
+          {workspaces.length > 1 && (
+            <Field label="Workspace">
+              <select {...field("workspaceId")}>
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           <Field label="Phương thức xác thực">
             <div className="segmented">
               {methods.map(([value, label, Icon]) => (
