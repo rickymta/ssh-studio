@@ -189,7 +189,8 @@ pub struct Data {
 pub struct Settings {
     pub font_family: String,
     pub font_size: u8,
-    pub line_height: f32,
+    /// f64: an f32 1.3 reaches the frontend as 1.2999999523162842.
+    pub line_height: f64,
     pub scrollback: u32,
     /// `block` | `bar` | `underline`.
     pub cursor_style: String,
@@ -432,6 +433,11 @@ mod tests {
         // A v0.1 workspace has no "settings" key.
         let old: Data = serde_json::from_str(r#"{"hosts":[],"keys":[],"knownHosts":{}}"#).unwrap();
         assert_eq!(old.settings, Settings::default());
+        // Decimal values survive the JSON round trip unchanged.
+        assert_eq!(
+            serde_json::to_value(Settings::default()).unwrap()["lineHeight"],
+            serde_json::json!(1.3)
+        );
         // Partial settings keep the other defaults.
         let partial: Settings = serde_json::from_str(r#"{"fontSize":18}"#).unwrap();
         assert_eq!(partial.font_size, 18);
@@ -439,7 +445,7 @@ mod tests {
         let wild = Settings {
             font_family: "   ".into(),
             font_size: 200,
-            line_height: f32::NAN,
+            line_height: f64::NAN,
             scrollback: 5,
             cursor_style: "beam".into(),
             default_view: "ports".into(),
