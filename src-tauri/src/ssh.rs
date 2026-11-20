@@ -137,8 +137,12 @@ impl Session {
 /// keeps those connections and closes them with itself.
 type Handle = client::Handle<Handler>;
 
-fn client_config() -> Arc<client::Config> {
+pub(crate) fn client_config() -> Arc<client::Config> {
     Arc::new(client::Config {
+        // Interactive traffic is many tiny packets: without TCP_NODELAY, Nagle holds each
+        // keystroke until the previous one is acknowledged, so typing echoes late (OpenSSH
+        // sets it for interactive sessions too).
+        nodelay: true,
         inactivity_timeout: None,
         keepalive_interval: Some(Duration::from_secs(15)),
         keepalive_max: 3,
