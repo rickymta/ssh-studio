@@ -318,7 +318,11 @@ export function TerminalView({
           </button>
         </div>
       )}
-      <div className="terminal-container" ref={container} />
+      {/* FitAddon sizes the terminal from its parent's computed height, which includes
+          padding under border-box: keep the padding outside the measured element. */}
+      <div className="terminal-container">
+        <div className="terminal-host" ref={container} />
+      </div>
     </div>
   );
 }
