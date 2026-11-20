@@ -20,7 +20,9 @@
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "pack": "tauri build --no-bundle",
     "dist": "tauri build",
-    "dist:signed": "tauri build --config src-tauri/tauri.signing.conf.json"
+    "dist:signed": "tauri build --config src-tauri/tauri.signing.conf.json",
+    "release": "node scripts/release.mjs",
+    "check:version": "node scripts/release.mjs --check"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

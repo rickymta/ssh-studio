@@ -18,14 +18,17 @@ use store::{Host, Settings, Store};
 use tauri::{Emitter, Manager, State};
 use tokio::sync::{Mutex, Notify, Semaphore, oneshot};
 
+type EmitFn = dyn Fn(&str, Value) + Send + Sync;
 #[derive(Clone)]
-pub struct Events(Arc<dyn Fn(&str, Value) + Send + Sync>);
+pub struct Events(Arc<EmitFn>);
 impl Events {
     fn desktop(app: tauri::AppHandle) -> Self {
         Self(Arc::new(move |name, value| {
             let _ = app.emit(name, value);
         }))
     }
+    /// Same shape as `tauri::Emitter::emit`, so call sites read `let _ = app.emit(..)` alike.
+    #[allow(clippy::result_unit_err)]
     pub fn emit(&self, name: &str, value: Value) -> Result<(), ()> {
         (self.0)(name, value);
         Ok(())

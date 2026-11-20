@@ -1,7 +1,42 @@
-# Phát hành: ký số và nền tảng khác (F8)
+# Phát hành
 
-Phần này cần tài nguyên của chủ dự án (chứng chỉ, máy macOS/Linux) nên mới chỉ có cấu hình và hướng
-dẫn. Chưa có bản build nào được ký, và chưa chạy thử trên macOS/Linux.
+## 0. Phát hành bằng GitHub Actions
+
+Luồng giống git-studio: chỉ đẩy tag `vX.Y.Z` nằm trên `main` mới chạy Actions (không chạy theo mỗi push
+hay pull request).
+
+1. Trên `main`, working tree sạch:
+   ```powershell
+   npm run release -- patch        # hoặc minor | major | 1.2.3 | 1.3.0-beta.1; thêm --dry-run để xem trước
+   ```
+   Script đổi version ở `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`,
+   `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, thêm mục mới vào `CHANGELOG.md` từ các commit
+   (Conventional Commits) kể từ tag trước, rồi commit `chore(release): vX.Y.Z` và tạo tag. Script không
+   push. Nên đọc lại và sửa mục CHANGELOG (`git commit --amend`, rồi `git tag -f vX.Y.Z`) trước khi push.
+2. Đẩy lên:
+   ```powershell
+   git push origin main vX.Y.Z
+   ```
+3. Workflow [`release.yml`](../.github/workflows/release.yml):
+   - **prepare**: tag đúng dạng, version trong tag khớp các file (`npm run check:version`), tag nằm
+     trên `main`.
+   - **test**: gọi [`ci.yml`](../.github/workflows/ci.yml) trên đúng commit của tag: vitest, build
+     frontend, `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test` (server SSH/SFTP loopback,
+     không dùng server hay credential thật). Lỗi thì dừng, không tạo release.
+   - **draft**: tạo release DRAFT, nội dung lấy từ mục của version trong `CHANGELOG.md`.
+   - **build**: installer NSIS Windows x64 (`SSHStudio_X.Y.Z_windows-x64-setup.exe`), upload vào draft.
+     Build lỗi thì release vẫn là draft.
+   - **publish**: thêm `SHA256SUMS.txt`, chuyển draft thành release chính thức (tag có `-pre` thành
+     pre-release).
+4. Chạy lại cho tag đã có: Actions → Release → Run workflow, nhập tag.
+
+CI cũng chạy tay được: Actions → CI → Run workflow.
+
+Ký số trên CI (tùy chọn): thêm secret `WINDOWS_CERTIFICATE` (file `.pfx` mã hóa base64) và
+`WINDOWS_CERTIFICATE_PASSWORD`. Không có secret thì bản build không ký.
+
+Phần dưới đây là ký số khi build trên máy và các nền tảng khác (F8). Chưa có bản build nào được ký, và
+chưa chạy thử trên macOS/Linux.
 
 ## 1. Ký số bản Windows
 
@@ -102,5 +137,6 @@ npm run tauri -- build --bundles deb,appimage
 
 - Chạy `npm test` trên macOS và Linux (test agent dùng Unix socket đã có nhánh `cfg(unix)`, chưa chạy).
 - Kiểm thử thủ công: kết nối, SFTP, kéo thả từ Finder / file manager, tray, ký và cài đặt.
-- Thêm CI ma trận (`windows-latest`, `macos-latest`, `ubuntu-22.04`) với `tauri-action`; secret ký đặt
-  trong CI.
+- Thêm icon `.icns` / `.png` (hiện chỉ có `icons/icon.ico`), rồi thêm `macos-latest` và `ubuntu-22.04`
+  vào ma trận `check` của `ci.yml` và `build` của `release.yml` (git-studio có sẵn mẫu cho dmg, deb,
+  rpm, AppImage).
