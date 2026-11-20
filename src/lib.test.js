@@ -7,6 +7,9 @@ import {
   defaultSettings,
   shortcut,
   terminalOptions,
+  normalizeLayout,
+  dragRatio,
+  layoutDefaults,
   withDefaults,
   zoomFont,
   keyFileName,
@@ -374,6 +377,34 @@ describe("shortcuts and settings (F7)", () => {
       scrollback: 10000,
     });
     expect(withDefaults(undefined)).toEqual(defaultSettings);
+  });
+});
+
+describe("resizable layout", () => {
+  it("keeps dividers between 15% and 85% of the box", () => {
+    expect(dragRatio(100, 1000, 600)).toBeCloseTo(0.5);
+    expect(dragRatio(100, 1000, 120)).toBe(0.15);
+    expect(dragRatio(100, 1000, 5000)).toBe(0.85);
+    expect(dragRatio(0, 0, 10)).toBe(0.5);
+  });
+  it("repairs stored sizes", () => {
+    expect(normalizeLayout()).toEqual(layoutDefaults);
+    expect(
+      normalizeLayout({
+        split: 0.3,
+        side: 2,
+        panes: "x",
+        nameWidth: 40,
+        sizeWidth: 1e6,
+      }),
+    ).toEqual({
+      split: 0.3,
+      side: 0.5,
+      panes: 0.5,
+      nameWidth: 120,
+      sizeWidth: 400,
+    });
+    expect(normalizeLayout({ nameWidth: 0 }).nameWidth).toBe(0);
   });
 });
 

@@ -172,9 +172,7 @@ impl Settings {
         if self.font_family.is_empty() {
             self.font_family = defaults.font_family;
         }
-        self.font_size = self
-            .font_size
-            .clamp(*FONT_SIZES.start(), *FONT_SIZES.end());
+        self.font_size = self.font_size.clamp(*FONT_SIZES.start(), *FONT_SIZES.end());
         self.line_height = if self.line_height.is_finite() {
             self.line_height.clamp(1.0, 2.0)
         } else {
@@ -184,7 +182,8 @@ impl Settings {
         if !["block", "bar", "underline"].contains(&self.cursor_style.as_str()) {
             self.cursor_style = defaults.cursor_style;
         }
-        if !["terminal", "files", "split"].contains(&self.default_view.as_str()) {
+        // `split`: terminal above files; `side`: terminal left, files right.
+        if !["terminal", "files", "split", "side"].contains(&self.default_view.as_str()) {
             self.default_view = defaults.default_view;
         }
         self
@@ -365,8 +364,7 @@ mod tests {
     #[test]
     fn settings_default_for_old_files_and_are_clamped() {
         // A v0.1 workspace has no "settings" key.
-        let old: Data =
-            serde_json::from_str(r#"{"hosts":[],"keys":[],"knownHosts":{}}"#).unwrap();
+        let old: Data = serde_json::from_str(r#"{"hosts":[],"keys":[],"knownHosts":{}}"#).unwrap();
         assert_eq!(old.settings, Settings::default());
         // Partial settings keep the other defaults.
         let partial: Settings = serde_json::from_str(r#"{"fontSize":18}"#).unwrap();
@@ -388,6 +386,12 @@ mod tests {
         assert_eq!(wild.scrollback, 500);
         assert_eq!(wild.cursor_style, "block");
         assert_eq!(wild.default_view, "terminal");
+        let side = Settings {
+            default_view: "side".into(),
+            ..Settings::default()
+        }
+        .normalized();
+        assert_eq!(side.default_view, "side");
         // Saved and loaded back.
         let dir = tempfile::tempdir().unwrap();
         let mut store = Store::load(dir.path().to_owned()).unwrap();

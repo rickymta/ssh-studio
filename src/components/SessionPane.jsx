@@ -7,10 +7,21 @@ import {
   FolderOpen,
   RefreshCw,
   LayoutGrid,
+  Columns2,
   Cable,
 } from "lucide-react";
 import { statuses } from "../lib.js";
 import { Button } from "./ui.jsx";
+import { Splitter, useLayout } from "./layout.jsx";
+
+const views = [
+  ["terminal", "Terminal", Terminal],
+  ["files", "Files", FolderOpen],
+  ["split", "Chia đôi", LayoutGrid, "Terminal ở trên, file ở dưới"],
+  ["side", "Song song", Columns2, "Terminal bên trái, file bên phải"],
+];
+/** Views showing both the terminal and the file manager, and the layout field sizing them. */
+const paired = { split: "split", side: "side" };
 
 export function SessionPane({
   session,
@@ -29,6 +40,9 @@ export function SessionPane({
   const running = Object.values(forwards || {}).filter(
     (f) => f.sessionId === session.id && f.status === "running",
   ).length;
+  const layout = useLayout();
+  const pair = paired[session.view];
+  const showTerminal = !["files", "ports"].includes(session.view);
   return (
     <section
       className="session-pane"
@@ -36,27 +50,17 @@ export function SessionPane({
     >
       <div className="session-toolbar">
         <div className="segmented">
-          <button
-            className={session.view === "terminal" ? "selected" : ""}
-            onClick={() => setView("terminal")}
-          >
-            <Terminal size={16} />
-            Terminal
-          </button>
-          <button
-            className={session.view === "files" ? "selected" : ""}
-            onClick={() => setView("files")}
-          >
-            <FolderOpen size={16} />
-            Files
-          </button>
-          <button
-            className={session.view === "split" ? "selected" : ""}
-            onClick={() => setView("split")}
-          >
-            <LayoutGrid size={16} />
-            Chia đôi
-          </button>
+          {views.map(([value, label, Icon, title]) => (
+            <button
+              key={value}
+              title={title}
+              className={session.view === value ? "selected" : ""}
+              onClick={() => setView(value)}
+            >
+              <Icon size={16} />
+              {label}
+            </button>
+          ))}
           <button
             className={session.view === "ports" ? "selected" : ""}
             onClick={() => setView("ports")}
@@ -93,9 +97,8 @@ export function SessionPane({
         <div
           className="terminal-wrap"
           style={{
-            display: ["files", "ports"].includes(session.view)
-              ? "none"
-              : "flex",
+            display: showTerminal ? "flex" : "none",
+            flex: pair ? `0 0 ${layout[pair] * 100}%` : undefined,
           }}
         >
           <div className="terminal-caption">
@@ -105,7 +108,7 @@ export function SessionPane({
           </div>
           <TerminalView
             id={session.id}
-            visible={visible && !["files", "ports"].includes(session.view)}
+            visible={visible && showTerminal}
             status={session.status}
             settings={settings}
             notify={notify}
@@ -120,7 +123,14 @@ export function SessionPane({
             saveForwards={saveForwards}
           />
         )}
-        {["files", "split"].includes(session.view) && (
+        {pair && (
+          <Splitter
+            field={pair}
+            vertical={pair === "side"}
+            label={pair === "side" ? "Độ rộng terminal" : "Chiều cao terminal"}
+          />
+        )}
+        {["files", "split", "side"].includes(session.view) && (
           <FileManager
             session={session}
             home={home}

@@ -6,6 +6,7 @@ import { ConflictModal } from "./ConflictModal.jsx";
 import { EditorModal } from "./EditorModal.jsx";
 import { ChmodModal } from "./ChmodModal.jsx";
 import { SyncModal } from "./SyncModal.jsx";
+import { Splitter, useLayout } from "./layout.jsx";
 import { FolderOpen, FolderSync } from "lucide-react";
 import {
   call,
@@ -36,6 +37,7 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
   const [drag, setDrag] = useState(null);
   const [dropHover, setDropHover] = useState(false);
   const root = useRef(null);
+  const layout = useLayout();
   const paths = useRef({ local: home, remote: "." });
   const revisions = useRef({ local: 0, remote: 0 });
   const connected = session.status === "connected";
@@ -343,50 +345,59 @@ export function FileManager({ session, home, notify, transfers, showQueue }) {
           const disabled = side === "remote" && !connected;
           const chosen = entries(side);
           return (
-            <FilePane
-              key={side}
-              side={side}
-              listing={listing}
-              selection={selected[side]}
-              loading={loading[side]}
-              error={errors[side]}
-              disabled={disabled}
-              dropActive={
-                (drag && drag.over && drag.side !== side) ||
-                (side === "remote" && dropHover)
-              }
-              dropFolder={drag && drag.side !== side ? drag.over : null}
-              load={(directory) => load(side, directory)}
-              select={(next) =>
-                setSelected((old) => ({ ...old, [side]: next }))
-              }
-              startDrag={(file, e) => startDrag(side, file, e)}
-              create={() =>
-                setDialog({
-                  side,
-                  type: "mkdir",
-                  title: "Tạo thư mục",
-                  value: "",
-                })
-              }
-              rename={() =>
-                setDialog({
-                  side,
-                  type: "rename",
-                  title: "Đổi tên",
-                  value: chosen[0].name,
-                })
-              }
-              remove={() => remove(side)}
-              edit={
-                side === "remote"
-                  ? (file) => setEditing(remotePath(file.name))
-                  : undefined
-              }
-              chmod={side === "remote" ? setChmodEntry : undefined}
-              transfer={() => transferSelection(side)}
-              canTransfer={connected && !errors.remote && !errors.local}
-            />
+            <React.Fragment key={side}>
+              {side === "remote" && (
+                <Splitter field="panes" vertical label="Độ rộng khung local" />
+              )}
+              <FilePane
+                style={
+                  side === "local"
+                    ? { flex: `0 0 ${layout.panes * 100}%` }
+                    : undefined
+                }
+                side={side}
+                listing={listing}
+                selection={selected[side]}
+                loading={loading[side]}
+                error={errors[side]}
+                disabled={disabled}
+                dropActive={
+                  (drag && drag.over && drag.side !== side) ||
+                  (side === "remote" && dropHover)
+                }
+                dropFolder={drag && drag.side !== side ? drag.over : null}
+                load={(directory) => load(side, directory)}
+                select={(next) =>
+                  setSelected((old) => ({ ...old, [side]: next }))
+                }
+                startDrag={(file, e) => startDrag(side, file, e)}
+                create={() =>
+                  setDialog({
+                    side,
+                    type: "mkdir",
+                    title: "Tạo thư mục",
+                    value: "",
+                  })
+                }
+                rename={() =>
+                  setDialog({
+                    side,
+                    type: "rename",
+                    title: "Đổi tên",
+                    value: chosen[0].name,
+                  })
+                }
+                remove={() => remove(side)}
+                edit={
+                  side === "remote"
+                    ? (file) => setEditing(remotePath(file.name))
+                    : undefined
+                }
+                chmod={side === "remote" ? setChmodEntry : undefined}
+                transfer={() => transferSelection(side)}
+                canTransfer={connected && !errors.remote && !errors.local}
+              />
+            </React.Fragment>
           );
         })}
       </div>

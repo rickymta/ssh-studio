@@ -981,13 +981,77 @@ select option {
   min-height: 0;
   overflow: hidden;
 }
+/* Chia đôi (terminal above files) and Song song (terminal left, files right): the terminal
+   gets the dragged share inline, the file manager the rest. */
 .session-body.split > .terminal-wrap {
-  flex: 1;
-  min-height: 170px;
+  min-height: 120px;
 }
 .session-body.split > .file-manager {
-  flex: 1.15;
-  min-height: 220px;
+  flex: 1 1 0;
+  min-height: 160px;
+}
+.session-body.side {
+  flex-direction: row;
+}
+.session-body.side > .terminal-wrap {
+  min-width: 260px;
+}
+.session-body.side > .file-manager {
+  flex: 1 1 0;
+  min-width: 320px;
+}
+.session-body.side > .file-manager .file-hint {
+  border-top: 0;
+}
+.splitter {
+  flex: 0 0 6px;
+  position: relative;
+  background: #111923;
+  touch-action: none;
+  z-index: 3;
+}
+.splitter::after {
+  content: "";
+  position: absolute;
+  background: #2e3b48;
+  transition: background 0.12s;
+}
+.splitter.horizontal {
+  cursor: row-resize;
+}
+.splitter.horizontal::after {
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 2px;
+}
+.splitter.vertical {
+  cursor: col-resize;
+}
+.splitter.vertical::after {
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+}
+.splitter:hover::after,
+.splitter:focus-visible::after,
+body.resizing-x .splitter.vertical::after,
+body.resizing-y .splitter.horizontal::after {
+  background: var(--mint);
+}
+.splitter:focus-visible {
+  outline: none;
+}
+body.resizing-x,
+body.resizing-x * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+body.resizing-y,
+body.resizing-y * {
+  cursor: row-resize !important;
+  user-select: none;
 }
 .file-manager {
   display: flex;
@@ -1012,18 +1076,74 @@ select option {
   margin-left: auto;
   color: #60748a;
   font-size: 9px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .file-panes {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
   flex: 1;
   min-height: 0;
 }
 .file-pane {
+  flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #344151;
+}
+/* Fixed layout: the column widths come from the <colgroup> (resizable). */
+.file-pane .file-table {
+  table-layout: fixed;
+}
+.file-pane .file-table th {
+  overflow: visible;
+}
+.file-pane .file-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-pane .file-table td:first-child {
+  display: table-cell;
+}
+.file-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.file-name svg {
+  flex-shrink: 0;
+}
+.file-pane .file-table td:first-child span {
+  max-width: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Inside the header cell: the next (sticky) header would cover anything past its edge. */
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+}
+.col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  right: 0;
+  width: 2px;
+  background: #2b3743;
+}
+.col-resizer:hover::after,
+body.resizing-x .col-resizer::after {
+  background: var(--mint);
 }
 .file-pane:last-child {
   border: 0;
@@ -1491,6 +1611,11 @@ select option {
   .file-table td:last-child,
   .file-table th:last-child {
     display: none;
+  }
+  /* File panes keep every column: widths are user-resizable and the table scrolls. */
+  .file-pane .file-table td:last-child,
+  .file-pane .file-table th:last-child {
+    display: table-cell;
   }
 }
 @media (max-height: 820px) {
