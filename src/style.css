@@ -972,6 +972,14 @@ select option {
   min-height: 0;
   padding: 15px 12px 7px 20px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* The element xterm fits to: no padding, so its height is exactly the usable space. */
+.terminal-host {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .session-body.split > .terminal-wrap {
   flex: 1;
