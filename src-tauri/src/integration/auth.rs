@@ -400,6 +400,14 @@ async fn socks5_and_http_proxies_with_vault_password() {
         .unwrap();
     assert!(listing["files"].is_array());
 
+    // Keystrokes go out at once (no Nagle delay), through a proxy as well as directly.
+    assert!(crate::ssh::client_config().nodelay);
+    let proxy = via("tunnel", "http", http, "bob", "proxy-pass-2").proxy;
+    let tunnel = crate::proxy::connect(&proxy, Some("proxy-pass-2".into()), "127.0.0.1", fx.port)
+        .await
+        .unwrap();
+    assert!(tunnel.nodelay().unwrap());
+
     // The proxy password is only in the vault: not on disk, in the snapshot or in events.
     let disk = std::fs::read_to_string(fx.local.path().join("vault/workspace.json")).unwrap();
     let snapshot = fx.state.store.lock().await.snapshot().to_string();

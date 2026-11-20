@@ -23,6 +23,8 @@ pub async fn connect(
                     proxy.port
                 )
             })?;
+        // russh only sets TCP_NODELAY on sockets it opens itself (see `ssh::client_config`).
+        let _ = stream.set_nodelay(true);
         let auth = (!proxy.username.is_empty())
             .then(|| (proxy.username.clone(), password.unwrap_or_default()));
         match proxy.kind.as_str() {
