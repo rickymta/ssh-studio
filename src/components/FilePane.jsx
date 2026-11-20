@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { size, isFolder, nextSelection, modeString } from "../lib.js";
 import { Button, IconButton } from "./ui.jsx";
+import { ColumnResizer, useLayout } from "./layout.jsx";
 
 export function FilePane({
   side,
@@ -40,7 +41,9 @@ export function FilePane({
   chmod,
   transfer,
   canTransfer,
+  style,
 }) {
+  const layout = useLayout();
   const [address, setAddress] = useState(listing.path);
   useEffect(() => setAddress(listing.path), [listing.path]);
   const chosen = selection.selection;
@@ -63,6 +66,7 @@ export function FilePane({
   return (
     <section
       className={`file-pane ${dropActive && !dropFolder ? "drop-active" : ""}`}
+      style={style}
       data-drop-side={disabled ? undefined : side}
       data-drop-path={listing.path}
     >
@@ -173,6 +177,10 @@ export function FilePane({
         ) : (
           <table
             className="file-table"
+            // Columns past the pane's width scroll horizontally instead of squeezing.
+            style={{
+              minWidth: `${(layout.nameWidth || 160) + layout.sizeWidth + 90}px`,
+            }}
             onKeyDown={(e) => {
               if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
                 e.preventDefault();
@@ -180,10 +188,28 @@ export function FilePane({
               }
             }}
           >
+            <colgroup>
+              <col
+                style={{
+                  width: layout.nameWidth ? `${layout.nameWidth}px` : "60%",
+                }}
+              />
+              <col style={{ width: `${layout.sizeWidth}px` }} />
+              <col />
+            </colgroup>
             <thead>
               <tr>
-                <th>Tên</th>
-                <th>Kích thước</th>
+                <th>
+                  Tên
+                  <ColumnResizer field="nameWidth" label="Độ rộng cột Tên" />
+                </th>
+                <th>
+                  Kích thước
+                  <ColumnResizer
+                    field="sizeWidth"
+                    label="Độ rộng cột Kích thước"
+                  />
+                </th>
                 <th>Sửa đổi</th>
               </tr>
             </thead>
@@ -230,17 +256,19 @@ export function FilePane({
                   }}
                 >
                   <td>
-                    {file.directory ? (
-                      <Folder size={16} className="folder-icon" />
-                    ) : file.link ? (
-                      <ExternalLink
-                        size={16}
-                        className={file.targetDirectory ? "folder-icon" : ""}
-                      />
-                    ) : (
-                      <File size={16} />
-                    )}
-                    <span>{file.name}</span>
+                    <div className="file-name">
+                      {file.directory ? (
+                        <Folder size={16} className="folder-icon" />
+                      ) : file.link ? (
+                        <ExternalLink
+                          size={16}
+                          className={file.targetDirectory ? "folder-icon" : ""}
+                        />
+                      ) : (
+                        <File size={16} />
+                      )}
+                      <span>{file.name}</span>
+                    </div>
                   </td>
                   <td>{isFolder(file) ? "—" : size(file.size)}</td>
                   <td>

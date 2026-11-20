@@ -39,7 +39,7 @@ npm start
 - Phím tắt: Ctrl+Tab, Ctrl+1..9, Ctrl+Shift+W, Ctrl+Shift+T (mở lại server vừa đóng), Ctrl+= / Ctrl+- / Ctrl+0. Không chiếm Ctrl+C/V/W của shell.
 
 **File (SFTP)**
-- Hai khung local/remote, chế độ Terminal / Files / chia đôi. Chọn nhiều mục (Ctrl/Shift-click, Ctrl+A), kéo thả giữa hai khung và từ Explorer vào khung remote.
+- Hai khung local/remote, chế độ Terminal / Files / Chia đôi (terminal trên, file dưới) / Song song (terminal trái, file phải). Kéo thanh chia để đổi kích thước terminal, hai khung file và các cột Tên / Kích thước (nhấp đúp để đặt lại; lưu trên máy). Chọn nhiều mục (Ctrl/Shift-click, Ctrl+A), kéo thả giữa hai khung và từ Explorer vào khung remote.
 - Upload/download file và thư mục đệ quy, tiến độ gộp, hàng đợi hai tác vụ song song, hủy, thử lại / tiếp tục từ chỗ dừng (resume), giữ thời gian sửa đổi.
 - Trùng tên thì hỏi: Ghi đè / Giữ cả hai / Bỏ qua / Hủy, có "áp dụng cho tất cả". Không bao giờ tự ghi đè.
 - Sửa file text remote (≤ 5 MB, UTF-8) với số dòng, Ctrl+S, giữ kiểu xuống dòng và quyền file, báo xung đột khi file bị đổi trên server.

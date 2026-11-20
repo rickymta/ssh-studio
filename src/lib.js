@@ -293,7 +293,6 @@ export function zoomFont(size, action) {
   const next = size + (action === "zoomIn" ? 1 : action === "zoomOut" ? -1 : 0);
   return Math.min(32, Math.max(8, next));
 }
-/** xterm options derived from the settings. */
 /**
  * Keystroke → echo time: from a typed key (not a paste) to the next output of the session,
  * i.e. network round trip + server + app. Reports the median of the last `size` samples;
@@ -323,6 +322,41 @@ export function echoMeter(size = 15, maxMs = 1000) {
   };
 }
 
+/**
+ * Resizable layout, kept per machine: `split` (terminal height in Chia đôi), `side`
+ * (terminal width in Song song) and `panes` (local pane width) are fractions; `nameWidth`
+ * (0 = automatic) and `sizeWidth` are file table column widths in pixels.
+ */
+export const layoutDefaults = {
+  split: 0.45,
+  side: 0.5,
+  panes: 0.5,
+  nameWidth: 0,
+  sizeWidth: 90,
+};
+export const RATIO_MIN = 0.15;
+export const RATIO_MAX = 0.85;
+export function normalizeLayout(raw = {}) {
+  const ratio = (v, d) =>
+    typeof v === "number" && v >= RATIO_MIN && v <= RATIO_MAX ? v : d;
+  const px = (v, d, min, max) =>
+    Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : d;
+  const d = layoutDefaults;
+  return {
+    split: ratio(raw.split, d.split),
+    side: ratio(raw.side, d.side),
+    panes: ratio(raw.panes, d.panes),
+    nameWidth: raw.nameWidth ? px(raw.nameWidth, 0, 120, 1600) : 0,
+    sizeWidth: px(raw.sizeWidth, d.sizeWidth, 60, 400),
+  };
+}
+/** The fraction of a `size`-long box (starting at `start`) left of / above `pos`. */
+export const dragRatio = (start, size, pos) =>
+  size > 0
+    ? Math.min(RATIO_MAX, Math.max(RATIO_MIN, (pos - start) / size))
+    : 0.5;
+
+/** xterm options derived from the settings. */
 export const terminalOptions = (s) => ({
   fontFamily: s.fontFamily,
   fontSize: s.fontSize,

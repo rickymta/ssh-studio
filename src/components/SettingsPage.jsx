@@ -8,7 +8,12 @@ const cursorStyles = {
   bar: "Thanh dọc",
   underline: "Gạch dưới",
 };
-const views = { terminal: "Terminal", files: "Files", split: "Chia đôi" };
+const views = {
+  terminal: "Terminal",
+  files: "Files",
+  split: "Chia đôi (terminal trên, file dưới)",
+  side: "Song song (terminal trái, file phải)",
+};
 export const shortcutList = [
   ["Ctrl+Tab / Ctrl+Shift+Tab", "Chuyển phiên kế tiếp / trước"],
   ["Ctrl+1 … Ctrl+9", "Mở phiên thứ 1 … 9"],

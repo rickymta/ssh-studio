@@ -228,7 +228,8 @@ impl Settings {
         if !["block", "bar", "underline"].contains(&self.cursor_style.as_str()) {
             self.cursor_style = defaults.cursor_style;
         }
-        if !["terminal", "files", "split"].contains(&self.default_view.as_str()) {
+        // `split`: terminal above files; `side`: terminal left, files right.
+        if !["terminal", "files", "split", "side"].contains(&self.default_view.as_str()) {
             self.default_view = defaults.default_view;
         }
         self
@@ -437,6 +438,12 @@ mod tests {
         assert_eq!(wild.scrollback, 500);
         assert_eq!(wild.cursor_style, "block");
         assert_eq!(wild.default_view, "terminal");
+        let side = Settings {
+            default_view: "side".into(),
+            ..Settings::default()
+        }
+        .normalized();
+        assert_eq!(side.default_view, "side");
         // Saved and loaded back.
         let dir = tempfile::tempdir().unwrap();
         let mut store = Store::load(dir.path().to_owned()).unwrap();
