@@ -284,7 +284,10 @@ export const defaultSettings = {
   defaultView: "terminal",
   confirmClose: true,
   closeToTray: false,
+  uiScale: 100,
 };
+/** Interface zoom choices (percent) offered in the settings. */
+export const UI_SCALES = [80, 90, 100, 110, 120, 130, 150];
 export const withDefaults = (settings) => ({
   ...defaultSettings,
   ...(settings || {}),
@@ -374,11 +377,19 @@ export const terminalOptions = (s) => ({
  * line), so the server search is Ctrl+Shift+K there.
  */
 export function shortcut(e, inTerminal = false) {
-  if (e.type !== "keydown" || !e.ctrlKey || e.altKey || e.metaKey) return null;
+  if (e.type !== "keydown" || e.altKey || e.metaKey) return null;
+  // F1 stays with full-screen programs (mc, htop) inside the terminal.
+  if (e.key === "F1" && !e.ctrlKey && !e.shiftKey && !inTerminal)
+    return { action: "help" };
+  if (!e.ctrlKey) return null;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   const code = e.code || "";
   if (key === "Tab") return { action: e.shiftKey ? "prevTab" : "nextTab" };
+  // Ctrl+/ is readline's undo inside the terminal.
+  if ((key === "/" || code === "Slash") && !e.shiftKey && !inTerminal)
+    return { action: "help" };
   if (e.shiftKey) {
+    if (key === "l") return { action: "activity" };
     if (key === "w") return { action: "closeSession" };
     if (key === "t") return { action: "reopen" };
     if (key === "f") return { action: "search" };
@@ -396,6 +407,82 @@ export function shortcut(e, inTerminal = false) {
   if (!e.shiftKey && (key === "0" || code === "Digit0" || code === "Numpad0"))
     return { action: "zoomReset" };
   return null;
+}
+/**
+ * Shortcut cheat sheet. Entries with an `action` are checked against `shortcut()` by the
+ * tests, so the list cannot drift from the handlers; the others are handled in place.
+ */
+export const SHORTCUTS = [
+  {
+    title: "Chung",
+    items: [
+      { label: "Phím tắt và trợ giúp", keys: ["F1", "Ctrl+/"], action: "help" },
+      {
+        label: "Nhật ký hoạt động",
+        keys: ["Ctrl+Shift+L"],
+        action: "activity",
+      },
+      { label: "Tìm server", keys: ["Ctrl+K"], action: "findServer" },
+      {
+        label: "Tìm server (khi đang ở terminal)",
+        keys: ["Ctrl+Shift+K"],
+        action: "findServer",
+      },
+    ],
+  },
+  {
+    title: "Phiên",
+    items: [
+      { label: "Tab kế tiếp", keys: ["Ctrl+Tab"], action: "nextTab" },
+      { label: "Tab trước", keys: ["Ctrl+Shift+Tab"], action: "prevTab" },
+      {
+        label: "Tới tab thứ 1 … 9",
+        keys: ["Ctrl+1", "…", "Ctrl+9"],
+        action: "tab",
+      },
+      { label: "Đóng phiên", keys: ["Ctrl+Shift+W"], action: "closeSession" },
+      {
+        label: "Mở lại phiên vừa đóng",
+        keys: ["Ctrl+Shift+T"],
+        action: "reopen",
+      },
+    ],
+  },
+  {
+    title: "Terminal",
+    items: [
+      { label: "Tìm trong terminal", keys: ["Ctrl+Shift+F"], action: "search" },
+      { label: "Phóng to chữ", keys: ["Ctrl+="], action: "zoomIn" },
+      { label: "Thu nhỏ chữ", keys: ["Ctrl+-"], action: "zoomOut" },
+      { label: "Cỡ chữ mặc định", keys: ["Ctrl+0"], action: "zoomReset" },
+      { label: "Sao chép", keys: ["Ctrl+Shift+C", "Ctrl+Insert"] },
+      { label: "Dán", keys: ["Ctrl+Shift+V", "Shift+Insert"] },
+    ],
+  },
+  {
+    title: "File",
+    items: [
+      { label: "Chọn tất cả", keys: ["Ctrl+A"] },
+      { label: "Chọn thêm / bỏ chọn", keys: ["Ctrl+Click", "Space"] },
+      { label: "Chọn một dải", keys: ["Shift+Click"] },
+      { label: "Mở thư mục", keys: ["Enter"] },
+      { label: "Lưu file đang sửa", keys: ["Ctrl+S"] },
+    ],
+  },
+];
+/** Keyboard event for a combo such as "Ctrl+Shift+W" (used by the cheat sheet tests). */
+export function comboEvent(combo) {
+  const parts = combo.split("+");
+  const key = parts.pop() || "+";
+  return {
+    type: "keydown",
+    key,
+    code: /^[0-9]$/.test(key) ? `Digit${key}` : "",
+    ctrlKey: parts.includes("Ctrl"),
+    shiftKey: parts.includes("Shift"),
+    altKey: parts.includes("Alt"),
+    metaKey: false,
+  };
 }
 /** WebView keys that act like a browser (reload, print, find bar, history, back...). */
 const BROWSER_CTRL_KEYS = new Set([

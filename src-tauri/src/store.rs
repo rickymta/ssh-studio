@@ -201,6 +201,8 @@ pub struct Settings {
     pub confirm_close: bool,
     /// Closing the window hides it to the system tray; sessions keep running.
     pub close_to_tray: bool,
+    /// Interface zoom in percent (WebView zoom; the terminal font has its own size).
+    pub ui_scale: u16,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -215,6 +217,7 @@ impl Default for Settings {
             default_view: "terminal".into(),
             confirm_close: true,
             close_to_tray: false,
+            ui_scale: 100,
         }
     }
 }
@@ -234,6 +237,7 @@ impl Settings {
             defaults.line_height
         };
         self.scrollback = self.scrollback.clamp(500, 100_000);
+        self.ui_scale = self.ui_scale.clamp(80, 150);
         if !["block", "bar", "underline"].contains(&self.cursor_style.as_str()) {
             self.cursor_style = defaults.cursor_style;
         }
@@ -439,6 +443,7 @@ mod tests {
             scrollback: 5,
             cursor_style: "beam".into(),
             default_view: "ports".into(),
+            ui_scale: 400,
             ..Settings::default()
         }
         .normalized();
@@ -448,6 +453,8 @@ mod tests {
         assert_eq!(wild.scrollback, 500);
         assert_eq!(wild.cursor_style, "block");
         assert_eq!(wild.default_view, "terminal");
+        assert_eq!(wild.ui_scale, 150);
+        assert_eq!(partial.ui_scale, 100);
         let side = Settings {
             default_view: "side".into(),
             ..Settings::default()

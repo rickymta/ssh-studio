@@ -37,7 +37,7 @@ npm start
 - Nhiều phiên SSH cùng lúc, kể cả nhiều phiên tới cùng server; kết nối lại giữ nguyên tab và scrollback.
 - PTY `xterm-256color`, màu ANSI, resize, mouse report; Ctrl+Shift+C/V, Ctrl/Shift+Insert và chuột phải để sao chép / dán, tùy chọn copy-on-select.
 - Tìm trong terminal (Ctrl+Shift+F) có tô sáng kết quả, phân biệt hoa thường, regex.
-- Phím tắt: Ctrl+Tab, Ctrl+1..9, Ctrl+Shift+W, Ctrl+Shift+T (mở lại server vừa đóng), Ctrl+= / Ctrl+- / Ctrl+0. Không chiếm Ctrl+C/V/W của shell.
+- Phím tắt: Ctrl+Tab, Ctrl+1..9, Ctrl+Shift+W, Ctrl+Shift+T (mở lại server vừa đóng), Ctrl+= / Ctrl+- / Ctrl+0, F1 / Ctrl+/ (bảng phím tắt), Ctrl+Shift+L (nhật ký). Không chiếm Ctrl+C/V/W của shell; F1–F12, Ctrl+R… không còn tải lại cửa sổ như trình duyệt.
 
 **File (SFTP)**
 - Hai khung local/remote, chế độ Terminal / Files / Chia đôi (terminal trên, file dưới) / Song song (terminal trái, file phải). Kéo thanh chia để đổi kích thước terminal, hai khung file và các cột Tên / Kích thước (nhấp đúp để đặt lại; lưu trên máy). Chọn nhiều mục (Ctrl/Shift-click, Ctrl+A), kéo thả giữa hai khung và từ Explorer vào khung remote.
@@ -54,7 +54,9 @@ npm start
 - Xác nhận SHA256 fingerprint lần đầu; Known Hosts; chặn khi host key thay đổi.
 
 **Ứng dụng**
-- Trang **Cài đặt**: font, cỡ chữ, giãn dòng, scrollback, con trỏ, chế độ xem mặc định, xác nhận khi đóng, thu về khay.
+- Trang **Cài đặt**: font, cỡ chữ, giãn dòng, scrollback, con trỏ, chế độ xem mặc định, xác nhận khi đóng, thu về khay, cỡ giao diện (80–150%).
+- **Trợ giúp** (F1 hoặc nút ở thanh trạng thái): bảng phím tắt có ô lọc, hướng dẫn nhanh, giới thiệu (phiên bản, hệ điều hành, thư mục dữ liệu).
+- **Nhật ký hoạt động** (Ctrl+Shift+L): kết nối, truyền file và thông báo của ứng dụng, lọc theo lỗi và tìm kiếm; lưu 30 ngày / 1000 dòng trên máy, không chứa mật khẩu hay mã OTP.
 - Biểu tượng khay hệ thống: hiện cửa sổ, số phiên đang kết nối, thoát; tùy chọn chạy nền khi đóng cửa sổ.
 - `workspace.json` hỏng không làm app dừng: file được giữ lại để khôi phục, app mở với workspace trống.
 

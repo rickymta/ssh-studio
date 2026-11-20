@@ -66,6 +66,18 @@ type Shared<'a> = State<'a, Arc<AppState>>;
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
+/// Version and environment for the Help → About tab (no secrets, no workspace data).
+#[tauri::command]
+async fn app_info(state: Shared<'_>) -> Result<Value, String> {
+    let directory = state.store.lock().await.directory.clone();
+    Ok(json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "tauri": tauri::VERSION,
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+        "dataDir": directory.to_string_lossy(),
+    }))
+}
 #[tauri::command]
 async fn snapshot(state: Shared<'_>) -> Result<Value, String> {
     Ok(state.store.lock().await.snapshot())
@@ -551,6 +563,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             snapshot,
+            app_info,
             save_host,
             save_workspace,
             delete_workspace,

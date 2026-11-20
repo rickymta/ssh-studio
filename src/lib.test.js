@@ -7,6 +7,8 @@ import {
   defaultSettings,
   shortcut,
   browserKey,
+  SHORTCUTS,
+  comboEvent,
   workspaceView,
   workspaceInitial,
   terminalOptions,
@@ -500,5 +502,27 @@ describe("workspaceView", () => {
   it("takes the first letter of the name", () => {
     expect(workspaceInitial(" ánh")).toBe("Á");
     expect(workspaceInitial("")).toBe("W");
+  });
+});
+
+describe("shortcut cheat sheet", () => {
+  it("lists only combos that trigger the listed action", () => {
+    for (const group of SHORTCUTS)
+      for (const item of group.items) {
+        if (!item.action) continue;
+        for (const combo of item.keys.filter((k) => k !== "…")) {
+          const inTerminal = item.label.includes("terminal");
+          expect(shortcut(comboEvent(combo), inTerminal)?.action, combo).toBe(
+            item.action,
+          );
+        }
+      }
+  });
+  it("keeps F1 and Ctrl+/ for programs inside the terminal", () => {
+    expect(shortcut(comboEvent("F1"), true)).toBeNull();
+    expect(shortcut(comboEvent("Ctrl+/"), true)).toBeNull();
+    expect(shortcut(comboEvent("Ctrl+Shift+L"), true)).toEqual({
+      action: "activity",
+    });
   });
 });
