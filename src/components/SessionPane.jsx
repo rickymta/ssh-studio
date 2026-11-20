@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import { TerminalView } from "./TerminalView.jsx";
 import { FileManager } from "./FileManager.jsx";
 import { PortsPanel } from "./PortsPanel.jsx";
@@ -26,6 +26,7 @@ export function SessionPane({
   saveForwards,
   settings,
 }) {
+  const latencyLabel = useRef();
   const running = Object.values(forwards || {}).filter(
     (f) => f.sessionId === session.id && f.status === "running",
   ).length;
@@ -101,9 +102,17 @@ export function SessionPane({
           <div className="terminal-caption">
             <Terminal size={13} />
             {session.host.name}
-            <span>SSH · xterm-256color</span>
+            <span>
+              <i
+                ref={latencyLabel}
+                className="terminal-latency"
+                title="Thời gian từ lúc gõ phím tới khi server phản hồi: đường mạng hai chiều + xử lý trên server + ứng dụng."
+              />
+              SSH · xterm-256color
+            </span>
           </div>
           <TerminalView
+            latencyLabel={latencyLabel}
             id={session.id}
             visible={visible && !["files", "ports"].includes(session.view)}
             status={session.status}

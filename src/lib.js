@@ -294,6 +294,35 @@ export function zoomFont(size, action) {
   return Math.min(32, Math.max(8, next));
 }
 /** xterm options derived from the settings. */
+/**
+ * Keystroke → echo time: from a typed key (not a paste) to the next output of the session,
+ * i.e. network round trip + server + app. Reports the median of the last `size` samples;
+ * keys without a timely echo (password prompts, busy programs) are dropped.
+ */
+export function echoMeter(size = 15, maxMs = 1000) {
+  let pending = null;
+  const samples = [];
+  return {
+    input(now, length) {
+      if (length <= 4 && pending === null) pending = now;
+    },
+    output(now) {
+      if (pending === null) return null;
+      const ms = now - pending;
+      pending = null;
+      if (ms < 0 || ms > maxMs) return null;
+      samples.push(ms);
+      if (samples.length > size) samples.shift();
+      const sorted = [...samples].sort((a, b) => a - b);
+      return sorted[Math.floor(sorted.length / 2)];
+    },
+    reset() {
+      pending = null;
+      samples.length = 0;
+    },
+  };
+}
+
 export const terminalOptions = (s) => ({
   fontFamily: s.fontFamily,
   fontSize: s.fontSize,

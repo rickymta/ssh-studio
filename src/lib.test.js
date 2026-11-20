@@ -7,6 +7,7 @@ import {
   defaultSettings,
   shortcut,
   terminalOptions,
+  echoMeter,
   withDefaults,
   zoomFont,
   keyFileName,
@@ -374,6 +375,30 @@ describe("shortcuts and settings (F7)", () => {
       scrollback: 10000,
     });
     expect(withDefaults(undefined)).toEqual(defaultSettings);
+  });
+});
+
+describe("echo meter", () => {
+  it("reports the median keystroke → echo time", () => {
+    const m = echoMeter(5);
+    m.input(0, 1);
+    expect(m.output(30)).toBe(30);
+    m.input(100, 1);
+    expect(m.output(190)).toBe(90);
+    m.input(200, 1);
+    expect(m.output(228)).toBe(30);
+  });
+  it("ignores pastes, output without a key and keys without echo", () => {
+    const m = echoMeter(5, 1000);
+    expect(m.output(10)).toBe(null);
+    m.input(0, 200);
+    expect(m.output(20)).toBe(null);
+    m.input(100, 1);
+    expect(m.output(5000)).toBe(null);
+    // Typing ahead: timed from the first key still waiting for output.
+    m.input(6000, 1);
+    m.input(6010, 1);
+    expect(m.output(6040)).toBe(40);
   });
 });
 

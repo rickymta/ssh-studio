@@ -967,6 +967,14 @@ select option {
   margin-left: auto;
   font-size: 9px;
 }
+.terminal-latency {
+  font-style: normal;
+  color: #7fe4cb;
+}
+.terminal-latency:not(:empty)::after {
+  content: " · ";
+  color: #60758a;
+}
 .terminal-container {
   flex: 1;
   min-height: 0;
