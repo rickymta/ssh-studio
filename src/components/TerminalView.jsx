@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Terminal as XTerminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 import {
   desktop,
@@ -18,7 +19,20 @@ import {
   defaultSettings,
   shortcut,
   terminalOptions,
+  echoMeter,
 } from "../lib.js";
+
+/**
+ * GPU renderer: echoed characters are drawn without DOM layout. Falls back to xterm's DOM
+ * renderer when WebGL2 is unavailable or the GPU context is lost.
+ */
+function useWebgl(terminal) {
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => webgl.dispose());
+    terminal.loadAddon(webgl);
+  } catch {}
+}
 
 const searchDecorations = {
   matchBackground: "#3a4a2a",
@@ -35,16 +49,18 @@ export function TerminalView({
   status,
   settings = defaultSettings,
   notify = () => {},
+  latencyLabel,
 }) {
   const container = useRef();
+  const meter = useRef(echoMeter());
   const term = useRef();
   const fit = useRef();
   const finder = useRef();
   const searchInput = useRef();
   const statusRef = useRef(status);
   statusRef.current = status;
-  const options = useRef({ settings, notify });
-  options.current = { settings, notify };
+  const options = useRef({ settings, notify, latencyLabel });
+  options.current = { settings, notify, latencyLabel };
   const previous = useRef(status);
   const [search, setSearch] = useState(null);
   const [results, setResults] = useState(null);
@@ -82,7 +98,20 @@ export function TerminalView({
     terminal.loadAddon(addon);
     terminal.loadAddon(searchAddon);
     terminal.open(container.current);
+    useWebgl(terminal);
     term.current = terminal;
+    // The label lives in the session caption; it is written directly (no React render on
+    // every keystroke) and at most twice a second.
+    let shown = null;
+    let labelTimer;
+    const showLatency = (ms) => {
+      shown = ms;
+      labelTimer ??= setTimeout(() => {
+        labelTimer = undefined;
+        const label = options.current.latencyLabel?.current;
+        if (label) label.textContent = `phản hồi ~${Math.round(shown)} ms`;
+      }, 500);
+    };
     fit.current = addon;
     finder.current = searchAddon;
     const found = searchAddon.onDidChangeResults((r) => setResults(r));
@@ -91,7 +120,10 @@ export function TerminalView({
     );
     if (desktop)
       listen("terminal", ({ payload }) => {
-        if (payload.id === id) terminal.write(fromBase64(payload.data));
+        if (payload.id !== id) return;
+        const ms = meter.current.output(performance.now());
+        if (ms !== null) showLatency(ms);
+        terminal.write(fromBase64(payload.data));
       }).then((fn) => {
         if (disposed) fn();
         else off = fn;
@@ -134,7 +166,12 @@ export function TerminalView({
       }
       return true;
     });
-    const input = terminal.onData((data) => send(textBytes(data)));
+    const input = terminal.onData((data) => {
+      const bytes = textBytes(data);
+      if (statusRef.current === "connected")
+        meter.current.input(performance.now(), bytes.length);
+      send(bytes);
+    });
     const binary = terminal.onBinary((data) => send(binaryBytes(data)));
     const selection = terminal.onSelectionChange(() => {
       if (options.current.settings.copyOnSelect && terminal.hasSelection())
@@ -167,6 +204,7 @@ export function TerminalView({
     window.addEventListener("terminal-search", searchRequest);
     return () => {
       disposed = true;
+      clearTimeout(labelTimer);
       off?.();
       observer.disconnect();
       window.removeEventListener("terminal-search", searchRequest);
@@ -198,6 +236,11 @@ export function TerminalView({
     settings.cursorBlink,
   ]);
   useEffect(() => {
+    if (status !== "connected") {
+      meter.current.reset();
+      const label = latencyLabel?.current;
+      if (label) label.textContent = "";
+    }
     // Reconnecting keeps the same tab and scrollback; mark where the new session starts.
     if (
       status === "connecting" &&
