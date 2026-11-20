@@ -28,7 +28,7 @@ npm start
 
 **Server & kết nối**
 - Thêm, sửa, xóa server; tìm theo tên/IP/username (Ctrl+K); phân nhóm theo môi trường hoặc dự án.
-- Xác thực bằng password, private key, SSH agent (Windows OpenSSH agent / Pageant, `SSH_AUTH_SOCK` trên Unix) hoặc keyboard-interactive / MFA (OTP), kể cả chuỗi nhiều bước (key rồi OTP). Password và OTP được hỏi khi kết nối, không lưu xuống ổ đĩa.
+- Xác thực bằng password, private key, SSH agent (Windows OpenSSH agent / Pageant, `SSH_AUTH_SOCK` trên Unix) hoặc keyboard-interactive / MFA (OTP), kể cả chuỗi nhiều bước (key rồi OTP). Password được hỏi khi kết nối, hoặc lưu mã hóa trong vault nếu bạn chọn “Lưu mật khẩu”; mã OTP không bao giờ được lưu.
 - Jump host (ProxyJump, cho phép chuỗi nhiều bước, chặn vòng lặp) và proxy SOCKS5 / HTTP CONNECT. Mật khẩu proxy nằm trong vault mã hóa.
 - Port forwarding Local (-L), Remote (-R) và Dynamic SOCKS5 (-D) trong tab **Ports** của phiên; forward đã lưu tự bật khi kết nối.
 
@@ -49,7 +49,7 @@ npm start
 **SSH key & dữ liệu**
 - Nhập private key OpenSSH / PEM / PuTTY `.ppk` (v2, v3, có hoặc không passphrase); tạo key Ed25519; sao chép public key; dùng chung key cho nhiều server.
 - Xuất private key ra file OpenSSH, tùy chọn passphrase.
-- Sao lưu toàn bộ workspace (server, key, mật khẩu proxy, known hosts) vào file `.sshstudio-backup` mã hóa bằng mật khẩu riêng; khôi phục có xem trước và gộp không phá dữ liệu.
+- Sao lưu toàn bộ workspace (server, key, mật khẩu đã lưu, mật khẩu proxy, known hosts) vào file `.sshstudio-backup` mã hóa bằng mật khẩu riêng; khôi phục có xem trước và gộp không phá dữ liệu.
 - Xác nhận SHA256 fingerprint lần đầu; Known Hosts; chặn khi host key thay đổi.
 
 **Ứng dụng**
@@ -61,7 +61,7 @@ npm start
 
 1. Nếu dùng key: vào **SSH Keys**, nhập private key hoặc tạo mới. Với key tạo mới, sao chép public key và thêm vào `~/.ssh/authorized_keys` trên server qua kênh quản trị tin cậy.
 2. Chọn **Thêm server**, điền hostname/IP, port, username và phương thức xác thực. Ở **Kết nối qua**, chọn Trực tiếp, một jump host đã lưu, hoặc proxy.
-3. Chọn **Kết nối**. Đối chiếu fingerprint với console server hoặc quản trị viên trước khi tin cậy. Password / OTP được hỏi trong hộp thoại.
+3. Chọn **Kết nối**. Đối chiếu fingerprint với console server hoặc quản trị viên trước khi tin cậy. Password / OTP được hỏi trong hộp thoại; tick “Lưu mật khẩu” để lần sau không phải nhập lại (xóa trong **Chỉnh sửa server**).
 4. Mở thêm kết nối từ danh sách Servers; chuyển tab bằng chuột hoặc Ctrl+Tab / Ctrl+1..9.
 5. Trong **Files**, chọn thư mục ở cả hai khung, chọn file / thư mục rồi **Upload** / **Download**, hoặc kéo thả. Nhấp đúp file text remote để sửa; **Đồng bộ** để so sánh hai thư mục.
 6. Trong **Ports**, thêm forward; đánh dấu "Lưu vào server" để tự bật ở lần kết nối sau.
@@ -69,7 +69,7 @@ npm start
 
 ## Dữ liệu và bảo vệ key
 
-Tauri lưu `workspace.json` trong thư mục AppData của `dev.sshstudio.desktop` (Windows thường là `%APPDATA%\dev.sshstudio.desktop`). Metadata server, public key và cài đặt không phải bí mật. Private key và mật khẩu proxy được mã hóa bằng AES-256-GCM với nonce ngẫu nhiên; master key được lưu trong Windows Credential Manager, service `dev.sshstudio.desktop`, entry `vault-master-key`. Private key và mật khẩu proxy không được trả về frontend, không xuất hiện trong event hay log.
+Tauri lưu `workspace.json` trong thư mục AppData của `dev.sshstudio.desktop` (Windows thường là `%APPDATA%\dev.sshstudio.desktop`). Metadata server, public key và cài đặt không phải bí mật. Private key, mật khẩu đăng nhập đã lưu và mật khẩu proxy được mã hóa bằng AES-256-GCM với nonce ngẫu nhiên; master key được lưu trong Windows Credential Manager, service `dev.sshstudio.desktop`, entry `vault-master-key`. Các bí mật này không được trả về frontend, không xuất hiện trong event hay log.
 
 Key có passphrase được mở khóa lúc nhập, sau đó bản private key trong vault được bảo vệ bởi mã hóa của ứng dụng. Sao chép riêng `workspace.json` sang máy khác không chuyển được khả năng giải mã. Để chuyển máy, dùng **Sao lưu / Khôi phục**: file backup được mã hóa AES-256-GCM bằng khóa dẫn xuất từ mật khẩu của bạn (Argon2id), không phụ thuộc Credential Manager. Quên mật khẩu backup thì không mở được file. Private key chỉ rời vault khi bạn chủ động xuất hoặc sao lưu. Không có đồng bộ cloud hoặc telemetry.
 

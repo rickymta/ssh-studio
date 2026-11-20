@@ -129,6 +129,96 @@ async fn keyboard_interactive_only_server() {
     );
 }
 
+async fn stored(fx: &Fixture, id: &str) -> Host {
+    let store = fx.state.store.lock().await;
+    store
+        .data
+        .hosts
+        .iter()
+        .find(|h| h.id == id)
+        .cloned()
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remembered_password_skips_the_prompt_until_rejected() {
+    let fx = Fixture::start().await;
+    save(&fx, fx.host("pw", USER, "password")).await;
+
+    // Without ticking "remember", nothing is stored.
+    fx.answer(&[PASSWORD]);
+    open(&fx, "a", stored(&fx, "pw").await).await.unwrap();
+    assert_eq!(prompts(&fx)[0]["remember"], false, "checkbox offered");
+    assert!(stored(&fx, "pw").await.password_secret.is_empty());
+
+    // Ticked: sealed in the vault after a successful login, then no more prompts.
+    fx.clear_events();
+    fx.answer_and_remember(PASSWORD);
+    open(&fx, "b", stored(&fx, "pw").await).await.unwrap();
+    let host = stored(&fx, "pw").await;
+    assert_eq!(host.saved_password().unwrap().as_deref(), Some(PASSWORD));
+    assert!(all_events(&fx).contains("host-password"));
+    fx.clear_events();
+    open(&fx, "c", host).await.unwrap();
+    assert!(prompts(&fx).is_empty(), "remembered password used");
+
+    // Never in clear on disk, in the snapshot or in events.
+    let disk = std::fs::read_to_string(fx.local.path().join("vault/workspace.json")).unwrap();
+    let snapshot = fx.state.store.lock().await.snapshot();
+    assert!(!disk.contains(PASSWORD));
+    assert!(!snapshot.to_string().contains(PASSWORD));
+    assert_eq!(snapshot["hosts"][0]["hasSavedPassword"], true);
+    assert!(!all_events(&fx).contains(PASSWORD));
+
+    // Password changed on the server: asked again with the checkbox ticked; unticking it
+    // forgets the stale password.
+    {
+        let mut store = fx.state.store.lock().await;
+        let host = store.data.hosts.iter_mut().find(|h| h.id == "pw").unwrap();
+        host.password_secret = crate::store::seal(b"old-password").unwrap();
+        store.save().unwrap();
+    }
+    fx.clear_events();
+    fx.answer(&[PASSWORD]);
+    open(&fx, "d", stored(&fx, "pw").await).await.unwrap();
+    let asked = prompts(&fx);
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0]["remember"], true);
+    assert!(
+        asked[0]["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("từ chối")
+    );
+    assert!(stored(&fx, "pw").await.password_secret.is_empty());
+
+    // Keyboard-interactive servers: the remembered password answers "Password:".
+    let mut kbd = fx.host("kbd", KBD_USER, "interactive");
+    kbd.password = Some(PASSWORD.into());
+    kbd.seal_login_password(None).unwrap();
+    save(&fx, kbd).await;
+    fx.clear_events();
+    open(&fx, "e", stored(&fx, "kbd").await).await.unwrap();
+    assert!(prompts(&fx).is_empty());
+
+    // OTP questions are never offered for remembering, and always asked.
+    save(&fx, fx.host("mfa", MFA_USER, "password")).await;
+    fx.clear_events();
+    fx.answer_and_remember(PASSWORD);
+    fx.answer(&[OTP]);
+    open(&fx, "f", stored(&fx, "mfa").await).await.unwrap();
+    let asked = prompts(&fx);
+    assert_eq!(asked.len(), 2);
+    assert_eq!(asked[1]["remember"], Value::Null);
+    fx.clear_events();
+    fx.answer(&[OTP]);
+    open(&fx, "g", stored(&fx, "mfa").await).await.unwrap();
+    let asked = prompts(&fx);
+    assert_eq!(asked.len(), 1, "only the OTP is asked");
+    assert_eq!(asked[0]["prompts"][0]["label"], "Mã OTP: ");
+    assert!(!all_events(&fx).contains(OTP));
+}
+
 /// Runs russh's agent server on a fresh named pipe (Windows) or Unix socket holding `key`.
 async fn start_agent(fx: &Fixture) -> tokio::task::JoinHandle<()> {
     #[cfg(windows)]

@@ -174,6 +174,15 @@ function App() {
       register("auth-prompt-finished", (payload) =>
         setPrompts((old) => old.filter((item) => item.id !== payload.id)),
       ),
+      // A password was remembered (or a stale one dropped) after a login.
+      register("host-password", ({ hostId, saved }) =>
+        setData((old) => ({
+          ...old,
+          hosts: old.hosts.map((h) =>
+            h.id === hostId ? { ...h, hasSavedPassword: saved } : h,
+          ),
+        })),
+      ),
       register("transfer", (payload) =>
         setTransfers((old) => {
           const index = old.findIndex((t) => t.id === payload.id);
@@ -1037,11 +1046,11 @@ function App() {
               ? `Phiên ${host.name} · ${host.username}@${host.host}:${host.port}`
               : "";
           })()}
-          respond={(answers) =>
+          respond={(answers, remember = false) =>
             run(async () => {
               const id = prompts[0].id;
               setPrompts((old) => old.filter((item) => item.id !== id));
-              await call("auth_respond", { id, answers });
+              await call("auth_respond", { id, answers, remember });
             })
           }
         />

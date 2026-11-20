@@ -27,6 +27,21 @@ pub struct Host {
     /// Port forwards started automatically when the session connects (F5).
     #[serde(default)]
     pub forwards: Vec<crate::forward::Spec>,
+    /// Login password the user chose to remember, sealed in the vault (empty: ask on every
+    /// connection). Never sent to the frontend: the snapshot only has `hasSavedPassword`.
+    #[serde(default)]
+    pub password_secret: String,
+    /// Password typed in the server form; moved into `password_secret`, never serialized.
+    #[serde(default, skip_serializing)]
+    pub password: Option<String>,
+    /// Set by the server form to drop the remembered password; never serialized.
+    #[serde(default, skip_serializing)]
+    pub forget_password: bool,
+}
+/// Methods where a remembered password is used (as the password, or to answer the server's
+/// own "Password:" question over keyboard-interactive). OTP answers are never remembered.
+pub fn remembers_password(auth: &str) -> bool {
+    matches!(auth, "password" | "interactive")
 }
 pub const AUTH_METHODS: [&str; 4] = ["password", "key", "agent", "interactive"];
 
@@ -106,6 +121,37 @@ impl Host {
         };
         Ok(())
     }
+    /// Applies the server form's password choice. The frontend never sees the sealed value,
+    /// so it is taken from `previous` (the stored host): kept unless the user typed a new
+    /// password, asked to forget it, or changed the login (address, port, user, method).
+    pub fn seal_login_password(&mut self, previous: Option<&Host>) -> anyhow::Result<()> {
+        let typed = self.password.take().unwrap_or_default();
+        let forget = std::mem::take(&mut self.forget_password);
+        let same_login = |p: &&Host| {
+            p.host == self.host
+                && p.port == self.port
+                && p.username == self.username
+                && remembers_password(&p.auth)
+        };
+        self.password_secret = if forget || !remembers_password(&self.auth) {
+            String::new()
+        } else if !typed.is_empty() {
+            seal(typed.as_bytes())?
+        } else {
+            previous
+                .filter(same_login)
+                .map(|p| p.password_secret.clone())
+                .unwrap_or_default()
+        };
+        Ok(())
+    }
+    pub fn saved_password(&self) -> anyhow::Result<Option<String>> {
+        if self.password_secret.is_empty() || !remembers_password(&self.auth) {
+            Ok(None)
+        } else {
+            Ok(Some(unlock(&self.password_secret)?))
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -172,9 +218,7 @@ impl Settings {
         if self.font_family.is_empty() {
             self.font_family = defaults.font_family;
         }
-        self.font_size = self
-            .font_size
-            .clamp(*FONT_SIZES.start(), *FONT_SIZES.end());
+        self.font_size = self.font_size.clamp(*FONT_SIZES.start(), *FONT_SIZES.end());
         self.line_height = if self.line_height.is_finite() {
             self.line_height.clamp(1.0, 2.0)
         } else {
@@ -253,6 +297,12 @@ impl Store {
             key.as_object_mut().unwrap().remove("secret");
         }
         for host in data["hosts"].as_array_mut().unwrap() {
+            let saved = host
+                .as_object_mut()
+                .unwrap()
+                .remove("passwordSecret")
+                .is_some_and(|s| s.as_str().is_some_and(|s| !s.is_empty()));
+            host["hasSavedPassword"] = serde_json::json!(saved);
             if let Some(proxy) = host["proxy"].as_object_mut() {
                 let saved = proxy
                     .remove("secret")
@@ -365,8 +415,7 @@ mod tests {
     #[test]
     fn settings_default_for_old_files_and_are_clamped() {
         // A v0.1 workspace has no "settings" key.
-        let old: Data =
-            serde_json::from_str(r#"{"hosts":[],"keys":[],"knownHosts":{}}"#).unwrap();
+        let old: Data = serde_json::from_str(r#"{"hosts":[],"keys":[],"knownHosts":{}}"#).unwrap();
         assert_eq!(old.settings, Settings::default());
         // Partial settings keep the other defaults.
         let partial: Settings = serde_json::from_str(r#"{"fontSize":18}"#).unwrap();
@@ -472,6 +521,45 @@ mod tests {
         edited.proxy.username = "bob".into();
         edited.seal_proxy_password(Some(&host)).unwrap();
         assert!(edited.proxy.secret.is_empty());
+
+        // The login password follows the same rules, and is dropped on request or when the
+        // login changes.
+        let mut login = host.clone();
+        login.password = Some("login-secret-pw".into());
+        login.seal_login_password(None).unwrap();
+        assert!(login.password.is_none());
+        assert_eq!(login.saved_password().unwrap().unwrap(), "login-secret-pw");
+        store.data.hosts = vec![login.clone()];
+        store.save().unwrap();
+        let disk = std::fs::read_to_string(dir.path().join("workspace.json")).unwrap();
+        let snapshot = store.snapshot();
+        assert!(!disk.contains("login-secret-pw"));
+        assert!(!snapshot.to_string().contains("login-secret-pw"));
+        assert!(!snapshot.to_string().contains(&login.password_secret));
+        assert_eq!(snapshot["hosts"][0]["hasSavedPassword"], true);
+        let mut kept = host.clone();
+        kept.seal_login_password(Some(&login)).unwrap();
+        assert_eq!(kept.password_secret, login.password_secret);
+        let mut forgotten = host.clone();
+        forgotten.forget_password = true;
+        forgotten.seal_login_password(Some(&login)).unwrap();
+        assert!(forgotten.password_secret.is_empty());
+        let changes: [fn(&mut Host); 3] = [
+            |h| h.username = "root".into(),
+            |h| h.port = 2222,
+            |h| h.auth = "key".into(),
+        ];
+        for change in changes {
+            let mut moved = host.clone();
+            change(&mut moved);
+            moved.seal_login_password(Some(&login)).unwrap();
+            assert!(moved.password_secret.is_empty());
+        }
+        // A sealed value sent back by a client is never trusted.
+        let mut injected = host.clone();
+        injected.password_secret = login.password_secret.clone();
+        injected.seal_login_password(None).unwrap();
+        assert!(injected.password_secret.is_empty());
 
         let mut bad = host.clone();
         bad.jump_host_id = "other".into();

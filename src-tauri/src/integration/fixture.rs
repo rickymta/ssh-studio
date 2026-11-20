@@ -29,7 +29,7 @@ pub const KBD_USER: &str = "kbd";
 
 pub type EventLog = Arc<StdMutex<Vec<(String, Value)>>>;
 type Responder = Arc<StdMutex<Option<Box<dyn Fn(&str, &Value) + Send + Sync>>>>;
-pub type Answers = Arc<StdMutex<std::collections::VecDeque<Vec<String>>>>;
+pub type Answers = Arc<StdMutex<std::collections::VecDeque<crate::ssh::Answer>>>;
 
 #[derive(Clone)]
 struct TestServer {
@@ -110,6 +110,14 @@ impl server::Handler for TestSession {
             }
             (KBD_USER, _) => Auth::Reject {
                 proceed_with_methods: only(MethodKind::KeyboardInteractive),
+                partial_success: false,
+            },
+            // Like OpenSSH (until MaxAuthTries): a wrong password may be retried. russh's
+            // default reject would drop `password` from the methods after one attempt.
+            (USER, false) => Auth::Reject {
+                proceed_with_methods: Some(MethodSet::from(
+                    &[MethodKind::PublicKey, MethodKind::Password][..],
+                )),
                 partial_success: false,
             },
             _ => Auth::reject(),
@@ -462,6 +470,9 @@ impl Fixture {
             jump_host_id: String::new(),
             proxy: Default::default(),
             forwards: vec![],
+            password_secret: String::new(),
+            password: None,
+            forget_password: false,
         }
     }
 
@@ -486,7 +497,18 @@ impl Fixture {
         self.answers
             .lock()
             .unwrap()
-            .extend(answers.iter().map(|a| vec![a.to_string()]));
+            .extend(answers.iter().map(|a| crate::ssh::Answer {
+                values: vec![a.to_string()],
+                remember: false,
+            }));
+    }
+
+    /// Answers the next prompt and ticks "remember this password".
+    pub fn answer_and_remember(&self, answer: &str) {
+        self.answers.lock().unwrap().push_back(crate::ssh::Answer {
+            values: vec![answer.to_string()],
+            remember: true,
+        });
     }
 
     /// Calls `callback` synchronously for every emitted event (used to answer prompts).

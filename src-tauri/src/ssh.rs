@@ -157,15 +157,110 @@ struct Ctx<'a> {
     session_id: &'a str,
 }
 
+/// The user's reply to an auth prompt. `remember` is the "Lưu mật khẩu" checkbox, offered
+/// only for login passwords.
+pub struct Answer {
+    pub values: Vec<String>,
+    pub remember: bool,
+}
+
+/// A hidden keyboard-interactive question that asks for the login password (not an OTP).
+fn asks_password(label: &str) -> bool {
+    let label = label.to_lowercase();
+    label.contains("password") || label.contains("mật khẩu")
+}
+
+/// Remembered-password bookkeeping for one authentication.
+struct Remember {
+    /// Password remembered for this host, not tried yet.
+    saved: Option<String>,
+    /// The remembered password was sent (if a prompt follows, the server rejected it).
+    saved_tried: bool,
+    /// Last password typed at a prompt, with the state of its "remember" checkbox.
+    typed: Option<(String, bool)>,
+}
+
+impl Remember {
+    fn new(host: &Host) -> Self {
+        Self {
+            // A vault error just means asking again.
+            saved: host.saved_password().unwrap_or_default(),
+            saved_tried: false,
+            typed: None,
+        }
+    }
+    fn take_saved(&mut self) -> Option<String> {
+        let saved = self.saved.take();
+        self.saved_tried |= saved.is_some();
+        saved
+    }
+    /// Asks for the login password; the checkbox starts ticked when one was remembered.
+    async fn ask(&mut self, ctx: &Ctx<'_>, title: String, note: String) -> anyhow::Result<String> {
+        let answer = ctx
+            .ask(
+                title,
+                note,
+                vec![("Password".into(), false)],
+                Some(self.saved_tried),
+            )
+            .await?;
+        let password = answer.values.into_iter().next().unwrap_or_default();
+        self.typed = Some((password.clone(), answer.remember));
+        Ok(password)
+    }
+    /// After a successful login: seal the typed password if the user asked to, or drop a
+    /// remembered one the server rejected. Only the stored host with the same login changes.
+    async fn finish(self, ctx: &Ctx<'_>, host: &Host) {
+        let secret = match (&self.typed, self.saved_tried) {
+            (Some((password, true)), _) => match crate::store::seal(password.as_bytes()) {
+                Ok(secret) => secret,
+                Err(e) => {
+                    eprintln!("Không lưu được mật khẩu vào vault: {e}");
+                    return;
+                }
+            },
+            (Some((_, false)), true) => String::new(),
+            _ => return,
+        };
+        let saved = !secret.is_empty();
+        let mut store = ctx.state.store.lock().await;
+        let same = |h: &&mut Host| {
+            h.id == host.id
+                && h.host == host.host
+                && h.port == host.port
+                && h.username == host.username
+                && crate::store::remembers_password(&h.auth)
+        };
+        let Some(stored) = store.data.hosts.iter_mut().find(same) else {
+            return;
+        };
+        let before = std::mem::replace(&mut stored.password_secret, secret);
+        if let Err(e) = store.save() {
+            if let Some(stored) = store.data.hosts.iter_mut().find(same) {
+                stored.password_secret = before;
+            }
+            eprintln!("Không lưu được workspace: {e}");
+            return;
+        }
+        drop(store);
+        let _ = ctx
+            .app
+            .emit("host-password", json!({"hostId": host.id, "saved": saved}));
+    }
+}
+
 impl Ctx<'_> {
     /// Shows a prompt (password, OTP, keyboard-interactive questions) and waits for the
-    /// answers. Answers are never stored or logged; `None` means the user cancelled.
+    /// answers. `remember` offers the "remember password" checkbox (its initial state);
+    /// answers are never logged or put in events, and only stored when the user ticks it.
+    /// A cancelled prompt is an error.
     async fn ask(
         &self,
         title: String,
         instructions: String,
         prompts: Vec<(String, bool)>,
-    ) -> anyhow::Result<Vec<String>> {
+        remember: Option<bool>,
+    ) -> anyhow::Result<Answer> {
         let id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
         self.state.prompts.lock().unwrap().insert(id.clone(), tx);
@@ -180,21 +275,23 @@ impl Ctx<'_> {
                     .iter()
                     .map(|(label, echo)| json!({"label": label, "echo": echo}))
                     .collect::<Vec<_>>(),
+                "remember": remember,
             }),
         );
         let answer = tokio::time::timeout(Duration::from_secs(300), rx).await;
         self.state.prompts.lock().unwrap().remove(&id);
         let _ = self.app.emit("auth-prompt-finished", json!({"id": id}));
-        let answers = answer
+        let mut answer = answer
             .map_err(|_| anyhow::anyhow!("Hết thời gian chờ nhập thông tin xác thực."))?
             .ok()
             .flatten()
             .ok_or_else(|| anyhow::anyhow!("Đã hủy xác thực."))?;
         anyhow::ensure!(
-            answers.len() == prompts.len(),
+            answer.values.len() == prompts.len(),
             "Số câu trả lời không khớp với câu hỏi."
         );
-        Ok(answers)
+        answer.remember &= remember.is_some();
+        Ok(answer)
     }
 }
 
@@ -218,12 +315,14 @@ impl From<AuthResult> for Outcome {
 }
 
 /// Keyboard-interactive rounds. `autofill` answers a single hidden prompt once (the password
-/// the server just rejected over the `password` method).
+/// the server just rejected over the `password` method); a remembered password answers the
+/// server's own password question. OTP and other questions are always asked.
 async fn keyboard_interactive(
     ctx: &Ctx<'_>,
     handle: &mut Handle,
     host: &Host,
     mut autofill: Option<String>,
+    remember: &mut Remember,
 ) -> anyhow::Result<Outcome> {
     let mut reply = handle
         .authenticate_keyboard_interactive_start(&host.username, None)
@@ -245,22 +344,41 @@ async fn keyboard_interactive(
                 instructions,
                 prompts,
             } => {
+                let title = if name.trim().is_empty() {
+                    format!("Xác thực {}@{}", host.username, host.host)
+                } else {
+                    name
+                };
+                let password = prompts.len() == 1 && !prompts[0].echo;
                 let answers = if prompts.is_empty() {
                     vec![]
-                } else if prompts.len() == 1 && !prompts[0].echo && autofill.is_some() {
+                } else if password && autofill.is_some() {
                     vec![autofill.take().unwrap_or_default()]
+                } else if password && asks_password(&prompts[0].prompt) {
+                    match remember.take_saved() {
+                        Some(saved) => vec![saved],
+                        None => {
+                            let answer = ctx
+                                .ask(
+                                    title,
+                                    instructions,
+                                    vec![(prompts[0].prompt.clone(), false)],
+                                    Some(remember.saved_tried),
+                                )
+                                .await?;
+                            remember.typed = Some((answer.values[0].clone(), answer.remember));
+                            answer.values
+                        }
+                    }
                 } else {
-                    let title = if name.trim().is_empty() {
-                        format!("Xác thực {}@{}", host.username, host.host)
-                    } else {
-                        name
-                    };
                     ctx.ask(
                         title,
                         instructions,
                         prompts.into_iter().map(|p| (p.prompt, p.echo)).collect(),
+                        None,
                     )
                     .await?
+                    .values
                 };
                 handle
                     .authenticate_keyboard_interactive_respond(answers)
@@ -365,25 +483,47 @@ async fn authenticate(ctx: &Ctx<'_>, handle: &mut Handle, host: &Host) -> anyhow
     let mut method = host.auth.clone();
     let mut tried: Vec<String> = vec![];
     let mut autofill = None;
+    let mut remember = Remember::new(host);
+    let title = format!("Mật khẩu cho {}@{}", host.username, host.host);
     for _ in 0..6 {
         tried.push(method.clone());
         let outcome = match method.as_str() {
             "key" => key_auth(ctx.state, handle, host).await?,
             "agent" => agent_auth(ctx.state, handle, host).await?,
-            "interactive" => keyboard_interactive(ctx, handle, host, autofill.take()).await?,
+            "interactive" => {
+                keyboard_interactive(ctx, handle, host, autofill.take(), &mut remember).await?
+            }
             _ => {
-                let password = ctx
-                    .ask(
-                        format!("Mật khẩu cho {}@{}", host.username, host.host),
-                        String::new(),
-                        vec![("Password".into(), false)],
-                    )
-                    .await?
-                    .remove(0);
-                let result: Outcome = handle
+                let saved = remember.take_saved();
+                let from_saved = saved.is_some();
+                let mut password = match saved {
+                    Some(saved) => saved,
+                    None => remember.ask(ctx, title.clone(), String::new()).await?,
+                };
+                let mut result: Outcome = handle
                     .authenticate_password(&host.username, password.clone())
                     .await?
                     .into();
+                // The remembered password no longer works: ask once, like a first login.
+                if let Outcome::Failure {
+                    partial: false,
+                    remaining,
+                } = &result
+                    && from_saved
+                    && remaining.contains(&MethodKind::Password)
+                {
+                    password = remember
+                        .ask(
+                            ctx,
+                            title.clone(),
+                            "Server từ chối mật khẩu đã lưu. Nhập lại mật khẩu.".into(),
+                        )
+                        .await?;
+                    result = handle
+                        .authenticate_password(&host.username, password.clone())
+                        .await?
+                        .into();
+                }
                 if let Outcome::Failure { partial: false, .. } = result {
                     autofill = Some(password);
                 }
@@ -391,7 +531,10 @@ async fn authenticate(ctx: &Ctx<'_>, handle: &mut Handle, host: &Host) -> anyhow
             }
         };
         let (remaining, partial) = match outcome {
-            Outcome::Success => return Ok(()),
+            Outcome::Success => {
+                remember.finish(ctx, host).await;
+                return Ok(());
+            }
             Outcome::Failure { remaining, partial } => (remaining, partial),
         };
         let allowed = |kind: MethodKind| remaining.contains(&kind);

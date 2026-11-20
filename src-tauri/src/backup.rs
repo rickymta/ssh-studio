@@ -1,7 +1,7 @@
 //! F6: private key export and password-protected vault backups.
 //!
-//! A backup holds hosts (with forwards), decrypted private keys, proxy passwords and known
-//! hosts, encrypted with AES-256-GCM under a key derived from the backup password with
+//! A backup holds hosts (with forwards), decrypted private keys, proxy passwords, remembered
+//! login passwords and known hosts, encrypted with AES-256-GCM under a key derived from the backup password with
 //! Argon2id (random salt, parameters stored in the file and authenticated as AAD). It does not
 //! depend on this machine's Credential Manager, so it restores on another computer.
 use crate::store::{self, Host, Key, Store};
@@ -62,6 +62,9 @@ struct Contents {
     keys: Vec<BackupKey>,
     #[serde(default)]
     proxy_passwords: BTreeMap<String, String>,
+    /// Remembered login passwords by host id (same protection as the rest of the backup).
+    #[serde(default)]
+    login_passwords: BTreeMap<String, String>,
     known_hosts: BTreeMap<String, String>,
 }
 
@@ -129,6 +132,7 @@ pub fn create(store: &Store, path: &Path, password: &str) -> anyhow::Result<Valu
         "Mật khẩu backup cần ít nhất {MIN_PASSWORD} ký tự."
     );
     let mut proxy_passwords = BTreeMap::new();
+    let mut login_passwords = BTreeMap::new();
     let hosts = store
         .data
         .hosts
@@ -138,7 +142,11 @@ pub fn create(store: &Store, path: &Path, password: &str) -> anyhow::Result<Valu
             if let Some(password) = host.proxy.password()? {
                 proxy_passwords.insert(host.id.clone(), password);
             }
+            if let Some(password) = host.saved_password()? {
+                login_passwords.insert(host.id.clone(), password);
+            }
             host.proxy.secret.clear();
+            host.password_secret.clear();
             Ok(host)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -162,6 +170,7 @@ pub fn create(store: &Store, path: &Path, password: &str) -> anyhow::Result<Valu
         hosts,
         keys,
         proxy_passwords,
+        login_passwords,
         known_hosts: store.data.known_hosts.clone(),
     };
     let mut salt = [0u8; 16];
@@ -341,6 +350,14 @@ fn merge(store: &mut Store, contents: Contents, replace: &[String]) -> anyhow::R
             Some(password) if host.proxy.enabled() => store::seal(password.as_bytes())?,
             _ => String::new(),
         };
+        host.password = None;
+        host.forget_password = false;
+        host.password_secret = match contents.login_passwords.get(&host.id) {
+            Some(password) if store::remembers_password(&host.auth) => {
+                store::seal(password.as_bytes())?
+            }
+            _ => String::new(),
+        };
         if !host.jump_host_id.is_empty()
             && !incoming.contains(&host.jump_host_id)
             && !store.data.hosts.iter().any(|h| h.id == host.jump_host_id)
@@ -401,6 +418,36 @@ mod tests {
             .insert("[web.example.test]:22".into(), "SHA256:original".into());
         store.save().unwrap();
         (store, private)
+    }
+
+    #[test]
+    fn remembered_login_password_travels_inside_the_backup() {
+        let _vault = VaultGuard::new();
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, _) = sample(&dir.path().join("a"));
+        let mut host = store.data.hosts[0].clone();
+        host.id = "db".into();
+        host.auth = "password".into();
+        host.password = Some("login-secret-pw".into());
+        host.seal_login_password(None).unwrap();
+        store.data.hosts.push(host);
+        let file = dir.path().join("vault.sshstudio-backup");
+        create(&store, &file, "correct horse").unwrap();
+        let raw = std::fs::read_to_string(&file).unwrap();
+        assert!(!raw.contains("login-secret-pw"));
+
+        let mut other = Store::load(dir.path().join("b")).unwrap();
+        restore(&mut other, &file, "correct horse", &[]).unwrap();
+        let restored = other.data.hosts.iter().find(|h| h.id == "db").unwrap();
+        assert_eq!(
+            restored.saved_password().unwrap().as_deref(),
+            Some("login-secret-pw")
+        );
+        let key_host = other.data.hosts.iter().find(|h| h.id == "web").unwrap();
+        assert!(key_host.password_secret.is_empty());
+        other.save().unwrap();
+        let disk = std::fs::read_to_string(dir.path().join("b/workspace.json")).unwrap();
+        assert!(!disk.contains("login-secret-pw"));
     }
 
     #[test]

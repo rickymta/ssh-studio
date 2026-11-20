@@ -1709,6 +1709,17 @@ select option {
   color: #e9a9af;
 }
 
+/* Remembered login password (server form) */
+.saved-password {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.saved-password small {
+  color: #7c94a8;
+  font-size: 11px;
+}
+
 /* F4: connection routes and auth prompts */
 .proxy-row {
   grid-template-columns: 150px 1fr 90px;
