@@ -40,7 +40,7 @@ pub struct AppState {
     targets: std::sync::Mutex<std::collections::HashSet<String>>,
     slots: Arc<Semaphore>,
     /// Pending authentication prompts (password, OTP…): answered by `auth_respond`.
-    prompts: std::sync::Mutex<HashMap<String, oneshot::Sender<Option<Vec<String>>>>>,
+    prompts: std::sync::Mutex<HashMap<String, oneshot::Sender<Option<ssh::Answer>>>>,
     /// SSH agent socket / named pipe override (tests); `None` uses the system agent.
     agent_path: std::sync::Mutex<Option<String>>,
     /// Running port forwards by `sessionId:specId`.
@@ -83,6 +83,7 @@ async fn save_host(state: Shared<'_>, host: Host) -> Result<Value, String> {
     }
     let previous = store.data.hosts.iter().find(|h| h.id == host.id).cloned();
     host.seal_proxy_password(previous.as_ref()).map_err(err)?;
+    host.seal_login_password(previous.as_ref()).map_err(err)?;
     let before = store.data.clone();
     store.data.hosts.retain(|h| h.id != host.id);
     store.data.hosts.push(host);
@@ -223,9 +224,13 @@ async fn auth_respond(
     state: Shared<'_>,
     id: String,
     answers: Option<Vec<String>>,
+    remember: Option<bool>,
 ) -> Result<(), String> {
     if let Some(tx) = state.prompts.lock().unwrap().remove(&id) {
-        let _ = tx.send(answers);
+        let _ = tx.send(answers.map(|values| ssh::Answer {
+            values,
+            remember: remember.unwrap_or(false),
+        }));
     }
     Ok(())
 }

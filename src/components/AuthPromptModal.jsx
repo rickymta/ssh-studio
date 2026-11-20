@@ -5,11 +5,17 @@ import { Button, Modal, Field } from "./ui.jsx";
 /**
  * Answers one backend authentication prompt (F4): password, OTP, or any
  * keyboard-interactive question. Answers go straight to `auth_respond` and are cleared
- * from the form; nothing is stored.
+ * from the form. For a login password (`prompt.remember` set) the user may ask to keep
+ * it in the vault; OTP answers are never kept.
  */
 export function AuthPromptModal({ prompt, label, respond }) {
   const [answers, setAnswers] = useState(() => prompt.prompts.map(() => ""));
-  useEffect(() => setAnswers(prompt.prompts.map(() => "")), [prompt.id]);
+  const offer = typeof prompt.remember === "boolean";
+  const [remember, setRemember] = useState(!!prompt.remember);
+  useEffect(() => {
+    setAnswers(prompt.prompts.map(() => ""));
+    setRemember(!!prompt.remember);
+  }, [prompt.id]);
   const single = prompt.prompts.length === 1;
   return (
     <Modal title={prompt.title} subtitle={label} close={() => respond(null)}>
@@ -18,7 +24,7 @@ export function AuthPromptModal({ prompt, label, respond }) {
           e.preventDefault();
           const values = answers;
           setAnswers(prompt.prompts.map(() => ""));
-          respond(values);
+          respond(values, offer && remember);
         }}
       >
         <div className="form-body">
@@ -42,9 +48,21 @@ export function AuthPromptModal({ prompt, label, respond }) {
               }
             />
           ))}
+          {offer && (
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+              />
+              Lưu mật khẩu, lần sau không cần nhập lại
+            </label>
+          )}
           <p className="form-note">
             <LockKeyhole size={16} />
-            Chỉ dùng cho lần xác thực này, không lưu xuống ổ đĩa.
+            {offer && remember
+              ? "Sau khi đăng nhập thành công, mật khẩu được mã hóa AES-256-GCM trong vault trên máy này. Xóa bất cứ lúc nào trong Chỉnh sửa server."
+              : "Chỉ dùng cho lần xác thực này, không lưu xuống ổ đĩa."}
           </p>
         </div>
         <div className="modal-footer">

@@ -18,13 +18,15 @@ const methods = [
 ];
 const notes = {
   password:
-    "Password được hỏi khi kết nối và không lưu xuống ổ đĩa. Nếu server yêu cầu thêm mã OTP, SSH Studio sẽ hỏi tiếp.",
+    "Password được hỏi khi kết nối, trừ khi bạn chọn lưu (ở đây hoặc trong hộp thoại đăng nhập). Nếu server yêu cầu thêm mã OTP, SSH Studio sẽ hỏi tiếp.",
   agent:
     "Dùng key trong SSH agent (OpenSSH Agent / Pageant trên Windows, SSH_AUTH_SOCK trên macOS/Linux). Private key không rời khỏi agent.",
   interactive:
     "Keyboard-interactive: hiển thị đúng các câu hỏi của server (password, mã OTP, xác nhận…).",
 };
 const defaultPorts = { socks5: 1080, http: 3128 };
+/** Methods that can use a remembered login password (mirrors `store::remembers_password`). */
+const rememberable = (auth) => auth === "password" || auth === "interactive";
 
 export function HostModal({ host, hosts = [], keys, close, save }) {
   const [form, setForm] = useState(() => {
@@ -40,6 +42,8 @@ export function HostModal({ host, hosts = [], keys, close, save }) {
     };
     return {
       ...base,
+      password: "",
+      forgetPassword: false,
       jumpHostId: base.jumpHostId || "",
       proxy: {
         kind: "none",
@@ -91,8 +95,13 @@ export function HostModal({ host, hosts = [], keys, close, save }) {
                   password: form.proxy.password || undefined,
                 }
               : { kind: "none", host: "", port: 0, username: "" };
+          const remembers = rememberable(form.auth);
           await save({
             ...form,
+            // Empty keeps the remembered password (the backend drops it if the login changed).
+            password:
+              (remembers && !form.forgetPassword && form.password) || undefined,
+            forgetPassword: remembers && form.forgetPassword,
             port: Number(form.port),
             group: form.group.trim() || "Servers",
             jumpHostId: route === "jump" ? form.jumpHostId : "",
@@ -169,6 +178,42 @@ export function HostModal({ host, hosts = [], keys, close, save }) {
               <LockKeyhole size={16} />
               {notes[form.auth]}
             </p>
+          )}
+          {rememberable(form.auth) && (
+            <div className="saved-password">
+              <Field
+                label="Lưu mật khẩu đăng nhập (tùy chọn)"
+                type="password"
+                autoComplete="new-password"
+                disabled={form.forgetPassword}
+                placeholder={
+                  host?.hasSavedPassword
+                    ? "•••••• đã lưu (để trống: giữ nguyên)"
+                    : "Để trống: hỏi mỗi lần kết nối"
+                }
+                {...field("password")}
+              />
+              {host?.hasSavedPassword && (
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={form.forgetPassword}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        forgetPassword: e.target.checked,
+                        password: "",
+                      })
+                    }
+                  />
+                  Xóa mật khẩu đã lưu (hỏi lại ở lần kết nối sau)
+                </label>
+              )}
+              <small>
+                Mã hóa AES-256-GCM trong vault trên máy này, không trả về giao
+                diện. Mã OTP không bao giờ được lưu.
+              </small>
+            </div>
           )}
           <Field label="Kết nối qua">
             <div className="segmented">
