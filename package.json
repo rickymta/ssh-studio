@@ -1,6 +1,6 @@
 {
   "name": "ssh-studio",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "SSH Studio — multi-server terminals and SFTP workspace",
   "author": "SSH Studio",
   "license": "MIT",
