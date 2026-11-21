@@ -553,6 +553,13 @@ fn quit_app(app: tauri::AppHandle) {
 
 fn main() {
     tauri::Builder::default()
+        // One process per user: every save writes the whole workspace.json from memory, so a
+        // second instance would silently overwrite the first one's changes (hosts, keys…).
+        // Launching again brings the running window forward instead. Registered first so the
+        // second process exits before anything else starts.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_window(app)
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
