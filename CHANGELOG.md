@@ -4,6 +4,12 @@ Các thay đổi đáng chú ý của SSH Studio. Định dạng theo [Keep a Ch
 phiên bản theo [Semantic Versioning](https://semver.org/lang/vi/). Mục mới được `npm run release` tự thêm
 từ commit (Conventional Commits) kể từ tag trước.
 
+## [0.2.1] - 2026-11-21
+
+### Tính năng
+
+- tùy chọn tương thích server cũ, thông báo lỗi xác thực rõ ràng
+
 ## [0.2.0] - 2026-11-20
 
 Bản đầu tiên cho cả Windows, macOS và Linux.
