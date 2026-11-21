@@ -22,6 +22,10 @@ pub struct Host {
     /// `password` | `key` | `agent` | `interactive` (keyboard-interactive / MFA).
     pub auth: String,
     pub key_id: String,
+    /// Also offer the old algorithms (SHA-1 key exchange and MACs, CBC / 3DES ciphers, DSA
+    /// host keys) for servers that support nothing newer; off by default.
+    #[serde(default)]
+    pub legacy_algorithms: bool,
     /// Saved host used as ProxyJump (empty: direct connection).
     #[serde(default)]
     pub jump_host_id: String,

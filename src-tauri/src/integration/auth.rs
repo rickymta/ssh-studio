@@ -515,3 +515,57 @@ async fn socks5_and_http_proxies_with_vault_password() {
     let error = open(&fx, "bad2", wrong).await.unwrap_err().to_string();
     assert!(error.contains("407"), "{error}");
 }
+
+/// An old server (SHA-1 key exchange, AES-CBC, hmac-sha1 only): refused by default with a
+/// message that names the fix, accepted with "Tương thích server cũ".
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn legacy_algorithms_reach_old_servers_only_when_enabled() {
+    let old = russh::Preferred {
+        kex: vec![
+            russh::kex::DH_G14_SHA1,
+            russh::kex::EXTENSION_OPENSSH_STRICT_KEX_AS_SERVER,
+        ]
+        .into(),
+        cipher: vec![russh::cipher::AES_128_CBC].into(),
+        mac: vec![russh::mac::HMAC_SHA1].into(),
+        ..russh::Preferred::DEFAULT
+    };
+    let fx = Fixture::start_with(old).await;
+    let refused = open(&fx, "a", fx.host("h", USER, "password"))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("Tương thích server cũ"), "{refused}");
+    assert!(refused.contains("diffie-hellman-group14-sha1"), "{refused}");
+    assert!(
+        prompts(&fx).is_empty(),
+        "no password asked before the transport works"
+    );
+
+    fx.answer(&[PASSWORD]);
+    let mut host = fx.host("h", USER, "password");
+    host.legacy_algorithms = true;
+    open(&fx, "b", host).await.unwrap();
+}
+
+/// A rejected password names what the server accepts and points at SSH keys, since `ssh` in
+/// a terminal silently logs in with ~/.ssh keys where the app only uses the chosen method.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn auth_failure_says_what_the_server_accepts() {
+    let fx = Fixture::start().await;
+    fx.answer(&["wrong-password"]);
+    let error = open(&fx, "a", fx.host("h", USER, "password"))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("đã thử: mật khẩu"), "{error}");
+    assert!(
+        error.contains("Server chấp nhận: publickey, password"),
+        "{error}"
+    );
+    assert!(error.contains("SSH Key"), "{error}");
+    assert!(
+        !error.contains("wrong-password"),
+        "no secret in the message"
+    );
+}
