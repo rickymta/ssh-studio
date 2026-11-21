@@ -63,6 +63,7 @@ npm start
 - **Trợ giúp** (F1 hoặc nút ở thanh trạng thái): bảng phím tắt có ô lọc, hướng dẫn nhanh, giới thiệu (phiên bản, hệ điều hành, thư mục dữ liệu).
 - **Nhật ký hoạt động** (Ctrl+Shift+L): kết nối, truyền file và thông báo của ứng dụng, lọc theo lỗi và tìm kiếm; lưu 30 ngày / 1000 dòng trên máy, không chứa mật khẩu hay mã OTP.
 - Biểu tượng khay hệ thống: hiện cửa sổ, số phiên đang kết nối, thoát; tùy chọn chạy nền khi đóng cửa sổ.
+- Chỉ chạy một bản: mở SSH Studio lần nữa (kể cả khi đang chạy nền ở khay) sẽ đưa cửa sổ đang có lên trước, tránh hai bản ghi đè cấu hình của nhau.
 - `workspace.json` hỏng không làm app dừng: file được giữ lại để khôi phục, app mở với workspace trống.
 
 ## Sử dụng
