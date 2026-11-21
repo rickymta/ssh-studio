@@ -56,6 +56,7 @@ export function HostModal({
       password: "",
       forgetPassword: false,
       jumpHostId: base.jumpHostId || "",
+      legacyAlgorithms: !!base.legacyAlgorithms,
       proxy: {
         kind: "none",
         host: "",
@@ -335,6 +336,25 @@ export function HostModal({
               </p>
             </>
           )}
+          <div className="legacy-option">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={form.legacyAlgorithms}
+                onChange={(e) =>
+                  setForm({ ...form, legacyAlgorithms: e.target.checked })
+                }
+              />
+              Tương thích server cũ
+            </label>
+            <small>
+              Cho phép thêm thuật toán cũ kém an toàn hơn (trao đổi khóa SHA-1,
+              mã hóa CBC / 3DES, MAC hmac-sha1, host key DSA) cho thiết bị mạng,
+              NAS hoặc server đời cũ không hỗ trợ thuật toán mới. Thuật toán mới
+              vẫn được ưu tiên khi server có. Chỉ bật khi kết nối báo thiếu
+              thuật toán chung.
+            </small>
+          </div>
         </div>
         <div className="modal-footer">
           <Button type="button" onClick={close}>

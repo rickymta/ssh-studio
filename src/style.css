@@ -1999,6 +1999,18 @@ body.resizing-x .col-resizer::after {
 .check.danger {
   color: #e9a9af;
 }
+.legacy-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 14px;
+  border-top: 1px solid #263140;
+}
+.legacy-option small {
+  color: #7c94a8;
+  font-size: 12px;
+  line-height: 1.5;
+}
 
 /* Remembered login password (server form) */
 .saved-password {
