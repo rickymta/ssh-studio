@@ -31,7 +31,11 @@ const GUIDE = [
   ],
   [
     "Workspace",
-    "Gom server theo khách hàng hoặc dự án ở thẻ workspace trên cùng sidebar. Mỗi workspace có danh sách server, nhóm và màu riêng.",
+    "Gom server theo khách hàng hoặc dự án ở thẻ workspace trên cùng sidebar. Trong mỗi workspace, xếp server vào thư mục (tối đa 3 cấp) ở mục Thư mục của sidebar: kéo thả server hoặc thư mục, hay chuột phải → “Chuyển tới thư mục”. Trang Servers liệt kê theo thư mục, lọc theo trạng thái và kết nối cả thư mục một lần.",
+  ],
+  [
+    "Launchpad",
+    "Ctrl+Shift+D hoặc mục Launchpad đầu sidebar: phiên đang mở, server gần đây, port forward, truyền file và những gì cần chú ý của mọi workspace ở một nơi. J / K để chọn, Enter để mở, C để kết nối, P để ghim, phím 1–6 để đổi tab.",
   ],
   [
     "Lưu mật khẩu",

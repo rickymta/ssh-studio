@@ -4,6 +4,19 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { confirm, ContextMenuHost, DialogHost } from "./components/dialogs.jsx";
+import { MenuHost } from "./components/menu.jsx";
+import { FolderTree } from "./components/FolderTree.jsx";
+import { WorkspaceView } from "./components/WorkspaceView.jsx";
+import { LaunchpadView } from "./components/LaunchpadView.jsx";
+import { usePrefs, updatePrefs } from "./components/launchpadStore.js";
+import {
+  badgeCount,
+  buildRows,
+  forgetHost,
+  recordConnection,
+  scopeHosts,
+} from "./launchpad.js";
+import * as Folders from "./folders.js";
 import appIcon from "../assets/logo.svg";
 import statusbarIcon from "../assets/statusbar.svg";
 import { HostModal } from "./components/HostModal.jsx";
@@ -28,19 +41,14 @@ import {
   ArchiveRestore,
   DatabaseBackup,
   FileKey,
-  Terminal,
   Server,
   KeyRound,
   Plus,
-  Search,
-  Folder,
-  FolderOpen,
   Upload,
   Download,
   X,
   ChevronRight,
   ChevronDown,
-  Pencil,
   Trash2,
   Copy,
   ShieldCheck,
@@ -48,10 +56,10 @@ import {
   Check,
   Unplug,
   LayoutGrid,
-  LockKeyhole,
   ScrollText,
   CircleHelp,
   Settings as SettingsIcon,
+  Rocket,
 } from "lucide-react";
 import {
   APP_VERSION,
@@ -75,13 +83,6 @@ import { Button, IconButton, Modal } from "./components/ui.jsx";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 
-const authLabels = {
-  password: "Password",
-  key: "SSH key",
-  agent: "SSH agent",
-  interactive: "MFA / OTP",
-};
-
 function App() {
   const [data, setData] = useState({
     hosts: [],
@@ -92,6 +93,8 @@ function App() {
   const [page, setPage] = useState("hosts");
   const [search, setSearch] = useState("");
   const [group, setGroup] = useState("all");
+  // Folder of the active workspace the server list shows ('' = every server).
+  const [folder, setFolder] = useState(Folders.ROOT);
   const [sessions, setSessions] = useState([]);
   const [active, setActive] = useState("");
   const [modal, setModal] = useState(null);
@@ -337,8 +340,10 @@ function App() {
     try {
       // Passwords / OTP are asked for through "auth-prompt" events while connecting.
       await call("connect", { id, hostId: host.id });
+      updatePrefs((p) => recordConnection(p, host.id, true));
       setData(await call("snapshot"));
     } catch (e) {
+      updatePrefs((p) => recordConnection(p, host.id, false, cleanError(e)));
       setSessions((old) =>
         old.map((s) =>
           s.id === id ? { ...s, status: "error", error: cleanError(e) } : s,
@@ -382,7 +387,7 @@ function App() {
   }, [connected]);
   const onShortcut = useRef();
   onShortcut.current = (e) => {
-    if (document.querySelector(".modal-backdrop")) return;
+    if (document.querySelector(".modal-backdrop, .confirm-backdrop")) return;
     const hit = shortcut(e, !!e.target.closest?.(".xterm"));
     if (!hit) return;
     const { action } = hit;
@@ -414,6 +419,8 @@ function App() {
       setModal({ type: "help" });
     } else if (action === "activity") {
       setModal({ type: "activity" });
+    } else if (action === "launchpad") {
+      setPage(page === "launchpad" && current ? "session" : "launchpad");
     } else if (action === "findServer") {
       setPage("hosts");
       requestAnimationFrame(() => searchBox.current?.select());
@@ -438,21 +445,57 @@ function App() {
     };
   }, []);
   const view = workspaceView(data);
-  const filtered = view.hosts.filter(
-    (h) =>
-      (group === "all" || h.group === group) &&
-      `${h.name} ${h.host} ${h.username}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-  );
   const groups = [...new Set(view.hosts.map((h) => h.group))];
   // A group filter whose last server was deleted or moved falls back to "all".
   useEffect(() => {
     if (group !== "all" && !groups.includes(group)) setGroup("all");
   }, [data.hosts, data.activeWorkspace, group]);
+  const activeFolders = view.active.folders || [];
+  // A folder that was deleted (or belongs to the previous workspace) falls back to the root.
+  useEffect(() => {
+    if (folder && !activeFolders.some((f) => f.id === folder))
+      setFolder(Folders.ROOT);
+  }, [data.workspaces, data.activeWorkspace, folder]);
+  /** Calls a backend command that returns the snapshot (or `{snapshot, …}`) and stores it. */
+  const apply = (command, args, message) =>
+    run(async () => {
+      const result = await call(command, args);
+      setData(result.snapshot || result);
+      if (message) notify(message);
+      return result;
+    });
+  const ctx = {
+    ws: view.active,
+    apply,
+    select: (id) => {
+      setFolder(id);
+      setPage("hosts");
+    },
+  };
+  const prefs = usePrefs();
+  const launchRows = buildRows({
+    hosts: scopeHosts(data.hosts, prefs.scope, view.active.id),
+    sessions,
+    forwards,
+    transfers,
+    prefs,
+    scope: prefs.scope,
+  });
+  const attention = badgeCount(launchRows);
+  const workspacesById = new Map(view.workspaces.map((w) => [w.id, w]));
   const activateWorkspace = (id) =>
     run(async () => {
       setData(await call("activate_workspace", { id }));
+      setPage("hosts");
+    });
+  /** Shows a server's workspace and folder (from Launchpad). */
+  const showInWorkspace = (host) =>
+    run(async () => {
+      if (host.workspaceId && host.workspaceId !== view.active.id)
+        setData(await call("activate_workspace", { id: host.workspaceId }));
+      setGroup("all");
+      setSearch("");
+      setFolder(host.folderId || Folders.ROOT);
       setPage("hosts");
     });
   const onDeleteHost = (host) =>
@@ -462,9 +505,28 @@ function App() {
           title: "Xóa server",
           kind: "danger",
         })
-      )
+      ) {
         setData(await call("delete_host", { id: host.id }));
+        updatePrefs((p) => forgetHost(p, host.id));
+      }
     });
+  /** Opens sessions to several servers; asks first when that is more than a few. */
+  const connectMany = async (hosts) => {
+    if (
+      hosts.length > 3 &&
+      !(await confirm(
+        `Mở ${hosts.length} phiên SSH cùng lúc? Server cần mật khẩu hoặc OTP sẽ lần lượt hỏi.`,
+        { title: "Kết nối tất cả", kind: "info", okLabel: `Kết nối ${hosts.length} server` },
+      ))
+    )
+      return;
+    for (const host of hosts) connectHost(host);
+  };
+  const openSession = (id, view) => {
+    if (view)
+      setSessions((old) => old.map((s) => (s.id === id ? { ...s, view } : s)));
+    selectSession(id);
+  };
   const pending = transfers.filter((t) =>
     ["queued", "running"].includes(t.status),
   ).length;
@@ -486,10 +548,29 @@ function App() {
         />
         <div className="nav-label">WORKSPACE</div>
         <button
+          className={`nav-item ${page === "launchpad" ? "active" : ""}`}
+          title="Launchpad (Ctrl+Shift+D)"
+          onClick={() => setPage("launchpad")}
+        >
+          <Rocket size={18} />
+          Launchpad
+          {attention > 0 ? (
+            <span
+              className="count alert"
+              title={`${attention} mục cần chú ý`}
+            >
+              {attention > 99 ? "99+" : attention}
+            </span>
+          ) : (
+            <span className="count">{connected}</span>
+          )}
+        </button>
+        <button
           className={`nav-item ${page === "hosts" ? "active" : ""}`}
           onClick={() => {
             setPage("hosts");
             setGroup("all");
+            setFolder(Folders.ROOT);
           }}
         >
           <Server size={18} />
@@ -516,29 +597,23 @@ function App() {
           <SettingsIcon size={18} />
           Cài đặt
         </button>
-        <div className="nav-label group-label">NHÓM SERVER</div>
-        {groups.length ? (
-          groups.map((g) => (
-            <button
-              key={g}
-              className={`nav-item subtle ${group === g && page === "hosts" ? "active" : ""}`}
-              onClick={() => {
-                setGroup(g);
-                setPage("hosts");
-              }}
-            >
-              <Folder size={17} />
-              {g}
-              <span className="count">
-                {view.hosts.filter((h) => h.group === g).length}
-              </span>
-            </button>
-          ))
+        <div className="nav-label group-label">THƯ MỤC</div>
+        {view.hosts.length || activeFolders.length ? (
+          <FolderTree
+            ctx={ctx}
+            hosts={view.hosts}
+            selected={folder}
+            active={page === "hosts"}
+            onSelect={(id) => {
+              setFolder(id);
+              setPage("hosts");
+            }}
+          />
         ) : (
           <p className="sidebar-hint">
-            Thêm server để tạo nhóm
+            Thêm server rồi gom chúng
             <br />
-            theo dự án hoặc môi trường.
+            vào thư mục theo dự án.
           </p>
         )}
         <div className="nav-label group-label">
@@ -574,8 +649,12 @@ function App() {
             <span>{view.active.name}</span>
             <ChevronRight size={14} />
             <strong>
-              {page === "hosts"
-                ? "Servers"
+              {page === "launchpad"
+                ? "Launchpad"
+                : page === "hosts"
+                ? Folders.pathTo(activeFolders, folder)
+                    .map((f) => f.name)
+                    .join(" / ") || "Servers"
                 : page === "keys"
                   ? "SSH Keys"
                   : page === "known"
@@ -598,11 +677,22 @@ function App() {
         {sessions.length > 0 && (
           <div className="tabs">
             <button
-              className={page !== "session" ? "selected" : ""}
+              className={page === "launchpad" ? "selected" : ""}
+              title="Launchpad (Ctrl+Shift+D)"
+              onClick={() => setPage("launchpad")}
+            >
+              <Rocket size={15} />
+              Launchpad
+              {attention > 0 && <b className="tab-badge">{attention}</b>}
+            </button>
+            <button
+              className={
+                page !== "session" && page !== "launchpad" ? "selected" : ""
+              }
               onClick={() => setPage("hosts")}
             >
               <LayoutGrid size={15} />
-              Workspace
+              {view.active.name}
             </button>
             {sessions.map((s) => (
               <div
@@ -629,214 +719,90 @@ function App() {
         )}
         <div className="main-content">
           {page === "hosts" && (
-            <section className="page">
-              <div className="page-heading">
-                <div>
-                  <div className="eyebrow">KẾT NỐI. LÀM VIỆC. QUẢN LÝ.</div>
-                  <h1>
-                    {group === "all" ? "Servers" : group}
-                    <span>
-                      {group === "all" ? view.hosts.length : filtered.length}
-                    </span>
-                  </h1>
-                  <p>
-                    Terminal và file của mọi server, trong một không gian làm
-                    việc.
-                  </p>
-                </div>
-                <Button
-                  icon={Plus}
-                  variant="primary"
-                  onClick={() => setModal({ type: "host" })}
-                >
-                  Thêm server
-                </Button>
-              </div>
-              {!desktop && (
-                <div className="notice">
-                  Bạn đang xem giao diện web. Chạy <code>npm start</code> để kết
-                  nối SSH qua ứng dụng Tauri.
-                </div>
-              )}
-              {data.recovered && !recoveredSeen && (
-                <div className="notice error">
-                  <span>
-                    File cấu hình bị hỏng nên SSH Studio đã khởi động với
-                    workspace trống. Bản cũ được giữ lại tại{" "}
-                    <code>{data.recovered}</code> trong thư mục dữ liệu ứng dụng
-                    để khôi phục thủ công.
-                  </span>
-                  <Button onClick={() => setRecoveredSeen(true)}>
-                    Đã hiểu
-                  </Button>
-                </div>
-              )}
-              <div className="toolbar">
-                <div className="search-box">
-                  <Search size={18} />
-                  <input
-                    ref={searchBox}
-                    aria-label="Tìm server"
-                    title="Ctrl+K"
-                    placeholder="Tìm theo tên, IP hoặc username…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                  <kbd>⌕</kbd>
-                </div>
-                <select
-                  aria-label="Lọc nhóm"
-                  value={group}
-                  onChange={(e) => setGroup(e.target.value)}
-                >
-                  <option value="all">Tất cả nhóm</option>
-                  {groups.map((g) => (
-                    <option key={g}>{g}</option>
-                  ))}
-                </select>
-                <div className="view-indicator">
-                  <LayoutGrid size={17} />
-                </div>
-              </div>
-              {view.hosts.length === 0 ? (
-                <div className="welcome">
-                  <div className="welcome-art">
-                    <span className="orbit orbit-one" />
-                    <span className="orbit orbit-two" />
-                    <div className="floating-key">
-                      <KeyRound size={23} />
-                    </div>
-                    <div className="terminal-symbol">
-                      <Terminal size={50} />
-                    </div>
-                    <div className="floating-folder">
-                      <FolderOpen size={25} />
-                    </div>
-                  </div>
-                  <span className="pill">MỘT WORKSPACE, MỌI SERVER</span>
-                  <h2>Server đầu tiên của bạn bắt đầu ở đây.</h2>
-                  <p>
-                    Lưu kết nối một lần. Mở nhiều terminal, duyệt file
-                    <br />
-                    và chuyển đổi giữa các server chỉ với một cú nhấp.
-                  </p>
-                  <Button
-                    variant="primary"
-                    icon={Plus}
-                    onClick={() => setModal({ type: "host" })}
-                  >
-                    Thêm server đầu tiên
-                  </Button>
-                  <div className="onboarding">
-                    <div>
-                      <span>
-                        <Terminal size={20} />
-                      </span>
-                      <strong>Terminal đa phiên</strong>
-                      <p>Mỗi server một tab riêng.</p>
-                    </div>
-                    <div>
-                      <span>
-                        <FolderOpen size={20} />
-                      </span>
-                      <strong>Files qua SFTP</strong>
-                      <p>Hai khung local và remote.</p>
-                    </div>
-                    <div>
-                      <span>
-                        <KeyRound size={20} />
-                      </span>
-                      <strong>Key được bảo vệ</strong>
-                      <p>Mã hóa ngay trên máy bạn.</p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
+            <WorkspaceView
+              ctx={ctx}
+              view={view}
+              folder={folder}
+              setFolder={setFolder}
+              sessions={sessions}
+              search={search}
+              setSearch={setSearch}
+              group={group}
+              setGroup={setGroup}
+              searchBox={searchBox}
+              connect={connectHost}
+              connectMany={connectMany}
+              openSession={openSession}
+              addHost={(folderId) =>
+                setModal({ type: "host", folderId: folderId || "" })
+              }
+              editHost={(host) => setModal({ type: "host", host })}
+              deleteHost={onDeleteHost}
+              editWorkspace={(workspace) =>
+                setModal({ type: "workspace", workspace })
+              }
+              saveWorkspace={(workspace) =>
+                apply("save_workspace", { workspace }, "Đã lưu workspace.")
+              }
+              notify={notify}
+              notices={
                 <>
-                  <div className="section-heading">
-                    <span>
-                      {filtered.length} server
-                      {group === "all" ? " trong workspace" : ""}
-                    </span>
-                    <span>Nhấp Kết nối để mở phiên mới</span>
-                  </div>
-                  <div className="server-grid">
-                    {filtered.map((host) => {
-                      const count = sessions.filter(
-                        (s) =>
-                          s.host.id === host.id && s.status === "connected",
-                      ).length;
-                      return (
-                        <article className="server-card" key={host.id}>
-                          <div className="server-card-top">
-                            <span className="server-icon">
-                              <Server size={23} />
-                            </span>
-                            <span className="tag">{host.group}</span>
-                            <IconButton
-                              title="Sửa server"
-                              icon={Pencil}
-                              onClick={() => setModal({ type: "host", host })}
-                            />
-                            <IconButton
-                              title="Xóa server"
-                              icon={Trash2}
-                              onClick={() => onDeleteHost(host)}
-                            />
-                          </div>
-                          <h3>{host.name}</h3>
-                          <p className="mono">
-                            {host.host}
-                            <span>:{host.port}</span>
-                          </p>
-                          <div className="server-meta">
-                            <span>
-                              <Monitor size={14} />
-                              {host.username}
-                            </span>
-                            <span>
-                              {host.auth === "key" ? (
-                                <KeyRound size={14} />
-                              ) : (
-                                <LockKeyhole size={14} />
-                              )}{" "}
-                              {authLabels[host.auth] || "Password"}
-                              {host.jumpHostId && " · Jump"}
-                              {host.proxy?.kind &&
-                                host.proxy.kind !== "none" &&
-                                ` · ${host.proxy.kind.toUpperCase()}`}
-                            </span>
-                          </div>
-                          <div className="server-card-bottom">
-                            <span className={count ? "online" : "muted"}>
-                              {count ? (
-                                <>
-                                  <i className="status-dot connected" />
-                                  {count} phiên hoạt động
-                                </>
-                              ) : (
-                                "Sẵn sàng kết nối"
-                              )}
-                            </span>
-                            <Button
-                              icon={Terminal}
-                              onClick={() => connectHost(host)}
-                            >
-                              Kết nối
-                            </Button>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                  {!filtered.length && (
-                    <div className="empty-inline">
-                      Không tìm thấy server phù hợp.
+                  {!desktop && (
+                    <div className="notice">
+                      Bạn đang xem giao diện web. Chạy <code>npm start</code> để
+                      kết nối SSH qua ứng dụng Tauri.
+                    </div>
+                  )}
+                  {data.recovered && !recoveredSeen && (
+                    <div className="notice error">
+                      <span>
+                        File cấu hình bị hỏng nên SSH Studio đã khởi động với
+                        workspace trống. Bản cũ được giữ lại tại{" "}
+                        <code>{data.recovered}</code> trong thư mục dữ liệu ứng
+                        dụng để khôi phục thủ công.
+                      </span>
+                      <Button onClick={() => setRecoveredSeen(true)}>
+                        Đã hiểu
+                      </Button>
                     </div>
                   )}
                 </>
-              )}
-            </section>
+              }
+            />
+          )}
+          {page === "launchpad" && (
+            <LaunchpadView
+              visible
+              prefs={prefs}
+              rows={launchRows}
+              view={view}
+              workspacesById={workspacesById}
+              connect={connectHost}
+              openSession={openSession}
+              closeSession={closeSession}
+              reconnect={(s) => connectHost(s.host, s.id)}
+              editHost={(host) => setModal({ type: "host", host })}
+              showWorkspace={showInWorkspace}
+              stopForward={(f) =>
+                run(async () => {
+                  await call("stop_forward", { id: f.id });
+                  notify("Đã dừng port forward.");
+                })
+              }
+              cancelTransfer={(t) =>
+                run(() => call("cancel_transfer", { id: t.id }))
+              }
+              retryTransfer={(t) => {
+                if (
+                  !sessions.some(
+                    (s) => s.id === t.sessionId && s.status === "connected",
+                  )
+                )
+                  return notify("Phiên của tác vụ này chưa kết nối lại.", true);
+                run(() => call("transfer", { request: retryRequest(t) }));
+              }}
+              showQueue={() => setShowTransfers(true)}
+            />
           )}
           {page === "keys" && (
             <section className="page">
@@ -1128,6 +1094,7 @@ function App() {
           keys={data.keys}
           workspaces={view.workspaces}
           workspaceId={view.active.id}
+          folderId={modal.host ? undefined : modal.folderId ?? folder}
           close={() => setModal(null)}
           save={(host) =>
             run(async () => {
@@ -1304,6 +1271,7 @@ function App() {
         </Modal>
       )}
       <DialogHost />
+      <MenuHost />
       <ContextMenuHost />
     </div>
   );

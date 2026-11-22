@@ -106,6 +106,9 @@ async fn save_host(state: Shared<'_>, host: Host) -> Result<Value, String> {
     {
         host.workspace_id = store.data.active_workspace.clone();
     }
+    if !workspace::has_folder(&store.data, &host.workspace_id, &host.folder_id) {
+        host.folder_id.clear();
+    }
     host.seal_proxy_password(previous.as_ref()).map_err(err)?;
     host.seal_login_password(previous.as_ref()).map_err(err)?;
     let before = store.data.clone();
@@ -525,6 +528,55 @@ async fn activate_workspace(state: Shared<'_>, id: String) -> Result<Value, Stri
 async fn move_hosts(state: Shared<'_>, ids: Vec<String>, to: String) -> Result<Value, String> {
     change_workspaces(state, |data| workspace::move_hosts(data, &ids, &to)).await
 }
+/// Puts servers into a folder ('' = root) of a workspace (drag and drop, "Chuyển tới").
+#[tauri::command]
+async fn place_hosts(
+    state: Shared<'_>,
+    ids: Vec<String>,
+    workspace_id: String,
+    folder_id: String,
+) -> Result<Value, String> {
+    change_workspaces(state, |data| {
+        workspace::place_hosts(data, &ids, &workspace_id, &folder_id)
+    })
+    .await
+}
+/// Creates (new id) or renames / folds a folder of a workspace.
+#[tauri::command]
+async fn save_folder(
+    state: Shared<'_>,
+    workspace_id: String,
+    folder: workspace::Folder,
+) -> Result<Value, String> {
+    change_workspaces(state, |data| workspace::save_folder(data, &workspace_id, folder)).await
+}
+#[tauri::command]
+async fn move_folder(
+    state: Shared<'_>,
+    workspace_id: String,
+    id: String,
+    parent: String,
+) -> Result<Value, String> {
+    change_workspaces(state, |data| {
+        workspace::move_folder(data, &workspace_id, &id, &parent)
+    })
+    .await
+}
+#[tauri::command]
+async fn delete_folder(state: Shared<'_>, workspace_id: String, id: String) -> Result<Value, String> {
+    change_workspaces(state, |data| workspace::delete_folder(data, &workspace_id, &id)).await
+}
+/// One root folder per server group; returns the snapshot and how many servers moved.
+#[tauri::command]
+async fn group_into_folders(state: Shared<'_>, workspace_id: String) -> Result<Value, String> {
+    let mut placed = 0;
+    let snapshot = change_workspaces(state, |data| {
+        placed = workspace::group_into_folders(data, &workspace_id)?;
+        Ok(())
+    })
+    .await?;
+    Ok(json!({"placed": placed, "snapshot": snapshot}))
+}
 
 #[tauri::command]
 async fn save_settings(state: Shared<'_>, settings: Settings) -> Result<Value, String> {
@@ -572,6 +624,11 @@ fn main() {
             delete_workspace,
             activate_workspace,
             move_hosts,
+            place_hosts,
+            save_folder,
+            move_folder,
+            delete_folder,
+            group_into_folders,
             delete_host,
             import_key,
             generate_key,

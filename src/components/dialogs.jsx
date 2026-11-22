@@ -42,6 +42,112 @@ export function confirm(
   });
 }
 
+/**
+ * Asks for one line of text (a folder name…). Resolves the trimmed text, or `null` when
+ * cancelled. `validate(text)` may return an error message that keeps the dialog open.
+ */
+export function ask({
+  title,
+  message = "",
+  label = "Tên",
+  value = "",
+  placeholder = "",
+  okLabel = "Lưu",
+  maxLength = 60,
+  validate,
+}) {
+  return new Promise((resolve) => {
+    const item = {
+      id: ++nextId,
+      prompt: true,
+      title,
+      message,
+      label,
+      value,
+      placeholder,
+      okLabel,
+      maxLength,
+      validate,
+      resolve,
+    };
+    if (enqueue) enqueue(item);
+    else waiting.push(item);
+  });
+}
+
+function PromptDialog({ item, answer }) {
+  const [text, setText] = useState(item.value);
+  const [error, setError] = useState("");
+  const input = useRef();
+  useEffect(() => {
+    const prior = document.activeElement;
+    input.current?.select();
+    const handler = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        answer(null);
+      } else if (!e.target.closest?.(".confirm-dialog")) e.stopPropagation();
+    };
+    document.addEventListener("keydown", handler, true);
+    return () => {
+      document.removeEventListener("keydown", handler, true);
+      if (prior?.isConnected) prior.focus();
+    };
+  }, [item.id]);
+  const submit = (e) => {
+    e.preventDefault();
+    const value = text.trim();
+    if (!value) return;
+    const problem = item.validate?.(value);
+    if (problem) return setError(problem);
+    answer(value);
+  };
+  return (
+    <div
+      className="confirm-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) answer(null);
+      }}
+    >
+      <form
+        className="confirm-dialog prompt-dialog info"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`prompt-title-${item.id}`}
+        onSubmit={submit}
+      >
+        <div className="prompt-body">
+          <h2 id={`prompt-title-${item.id}`}>{item.title}</h2>
+          {item.message && <p>{item.message}</p>}
+          <label className="field">
+            <span>{item.label}</span>
+            <input
+              ref={input}
+              value={text}
+              maxLength={item.maxLength}
+              placeholder={item.placeholder}
+              onChange={(e) => {
+                setText(e.target.value);
+                setError("");
+              }}
+            />
+          </label>
+          {error && <div className="inline-error">{error}</div>}
+        </div>
+        <div className="confirm-actions">
+          <button className="button" type="button" onClick={() => answer(null)}>
+            Hủy
+          </button>
+          <button className="button primary" type="submit" disabled={!text.trim()}>
+            {item.okLabel}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 const icons = { info: Info, warning: TriangleAlert, danger: CircleAlert };
 
 function ConfirmDialog({ item, answer }) {
@@ -141,8 +247,9 @@ export function DialogHost() {
   }, []);
   const current = queue[0];
   if (!current) return null;
+  const Dialog = current.prompt ? PromptDialog : ConfirmDialog;
   return (
-    <ConfirmDialog
+    <Dialog
       key={current.id}
       item={current}
       answer={(value) => {

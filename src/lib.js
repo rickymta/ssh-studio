@@ -394,6 +394,7 @@ export function shortcut(e, inTerminal = false) {
     if (key === "t") return { action: "reopen" };
     if (key === "f") return { action: "search" };
     if (key === "k") return { action: "findServer" };
+    if (key === "d") return { action: "launchpad" };
   }
   if (key === "k" && !e.shiftKey && !inTerminal)
     return { action: "findServer" };
@@ -421,6 +422,11 @@ export const SHORTCUTS = [
         label: "Nhật ký hoạt động",
         keys: ["Ctrl+Shift+L"],
         action: "activity",
+      },
+      {
+        label: "Launchpad (phiên, forward, server mọi workspace)",
+        keys: ["Ctrl+Shift+D"],
+        action: "launchpad",
       },
       { label: "Tìm server", keys: ["Ctrl+K"], action: "findServer" },
       {

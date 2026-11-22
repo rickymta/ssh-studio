@@ -474,6 +474,7 @@ impl Fixture {
             password: None,
             forget_password: false,
             workspace_id: String::new(),
+            folder_id: String::new(),
         }
     }
 
