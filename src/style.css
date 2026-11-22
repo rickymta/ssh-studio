@@ -463,6 +463,9 @@ main {
   padding: 38px 40px;
   height: 100%;
   overflow: auto;
+  /* The scrollbar's room is always kept, so switching between a long list (scrollbar) and a
+     short one (none) — Launchpad tabs, filters — does not shift the page sideways. */
+  scrollbar-gutter: stable;
 }
 .page-heading {
   display: flex;
@@ -3648,5 +3651,11 @@ span.muted.ellipsis {
   }
   .tree-item {
     height: 30px;
+  }
+}
+/* WebViews without scrollbar-gutter (older WebKitGTK): always show the track instead. */
+@supports not (scrollbar-gutter: stable) {
+  .page {
+    overflow-y: scroll;
   }
 }
