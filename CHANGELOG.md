@@ -4,6 +4,33 @@ Các thay đổi đáng chú ý của SSH Studio. Định dạng theo [Keep a Ch
 phiên bản theo [Semantic Versioning](https://semver.org/lang/vi/). Mục mới được `npm run release` tự thêm
 từ commit (Conventional Commits) kể từ tag trước.
 
+## [0.3.0] - 2026-11-22
+
+### Launchpad (Ctrl+Shift+D)
+
+- Một nơi cho mọi workspace (hoặc chỉ workspace hiện tại): **Phiên đang mở**, **Gần đây**,
+  **Port forward** đang chạy, **Truyền file** đang chạy / lỗi, **Cần chú ý** và **Tất cả server**.
+- "Cần chú ý" gom phiên bị ngắt, forward lỗi, truyền file thất bại và server có lần kết nối trước
+  lỗi; số mục hiện thành badge ở sidebar và thanh tab. Lỗi kết nối có thể "Bỏ qua" tới lần sau.
+- Ghim server lên đầu, tìm kiếm, phím J / K / Enter / C (kết nối) / P (ghim) / 1–6 (đổi tab).
+- Lịch sử kết nối chỉ lưu thời điểm và kết quả, trên máy này; không chứa mật khẩu hay OTP.
+
+### Thư mục trong workspace
+
+- Cây thư mục tối đa 3 cấp ở sidebar (thay danh sách nhóm): kéo thả server và thư mục, chuột phải
+  để tạo, đổi tên, chuyển, xóa (nội dung chuyển lên cấp trên, không xóa server).
+- "Tạo thư mục từ nhóm" chuyển các nhóm server có sẵn thành thư mục; nhóm vẫn giữ làm nhãn và bộ lọc.
+- Trang Servers thành tổng quan workspace: danh sách theo thư mục hoặc dạng thẻ, lọc Đang kết nối /
+  Chưa mở / Có port forward / Cần chú ý, cột lần kết nối gần nhất, "Kết nối tất cả" cho cả danh sách
+  hoặc một thư mục, menu server (sao chép lệnh ssh, ghim, chuyển thư mục / workspace).
+- Form server có ô chọn thư mục. Sao lưu / khôi phục giữ thư mục.
+
+### Giao diện
+
+- Menu thả xuống và chuột phải có menu con; hộp nhập tên trong app.
+- Trang luôn chừa chỗ cho thanh cuộn nên không giật khi đổi tab hay bộ lọc; bố cục gọn hơn ở cửa sổ
+  nhỏ nhất (1000×680).
+
 ## [0.2.2] - 2026-11-21
 
 ### Sửa lỗi
