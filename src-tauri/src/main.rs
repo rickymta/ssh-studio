@@ -548,7 +548,10 @@ async fn save_folder(
     workspace_id: String,
     folder: workspace::Folder,
 ) -> Result<Value, String> {
-    change_workspaces(state, |data| workspace::save_folder(data, &workspace_id, folder)).await
+    change_workspaces(state, |data| {
+        workspace::save_folder(data, &workspace_id, folder)
+    })
+    .await
 }
 #[tauri::command]
 async fn move_folder(
@@ -563,8 +566,15 @@ async fn move_folder(
     .await
 }
 #[tauri::command]
-async fn delete_folder(state: Shared<'_>, workspace_id: String, id: String) -> Result<Value, String> {
-    change_workspaces(state, |data| workspace::delete_folder(data, &workspace_id, &id)).await
+async fn delete_folder(
+    state: Shared<'_>,
+    workspace_id: String,
+    id: String,
+) -> Result<Value, String> {
+    change_workspaces(state, |data| {
+        workspace::delete_folder(data, &workspace_id, &id)
+    })
+    .await
 }
 /// One root folder per server group; returns the snapshot and how many servers moved.
 #[tauri::command]

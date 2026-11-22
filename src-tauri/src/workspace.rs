@@ -112,9 +112,9 @@ fn clean_folder_name(name: &str) -> anyhow::Result<String> {
 /// No two folders with the same name (ignoring case) side by side.
 fn ensure_unique(folders: &[Folder], id: &str, parent: &str, name: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
-        !folders
-            .iter()
-            .any(|f| f.id != id && f.parent == parent && f.name.to_lowercase() == name.to_lowercase()),
+        !folders.iter().any(|f| f.id != id
+            && f.parent == parent
+            && f.name.to_lowercase() == name.to_lowercase()),
         "Đã có thư mục “{name}” ở đây."
     );
     Ok(())
@@ -128,7 +128,8 @@ fn sanitize_folders(folders: &mut Vec<Folder>) {
     folders.retain(|f| !f.id.is_empty() && seen.insert(f.id.clone()));
     let ids: HashSet<String> = folders.iter().map(|f| f.id.clone()).collect();
     for folder in folders.iter_mut() {
-        if folder.parent == folder.id || (!folder.parent.is_empty() && !ids.contains(&folder.parent))
+        if folder.parent == folder.id
+            || (!folder.parent.is_empty() && !ids.contains(&folder.parent))
         {
             folder.parent.clear();
         }
@@ -594,8 +595,15 @@ mod tests {
             },
         )
         .unwrap();
-        let b = data.workspaces[0].folders.iter().find(|f| f.id == "b").unwrap();
-        assert_eq!((b.name.as_str(), b.parent.as_str(), b.collapsed), ("Production", "a", true));
+        let b = data.workspaces[0]
+            .folders
+            .iter()
+            .find(|f| f.id == "b")
+            .unwrap();
+        assert_eq!(
+            (b.name.as_str(), b.parent.as_str(), b.collapsed),
+            ("Production", "a", true)
+        );
     }
 
     #[test]
@@ -607,7 +615,10 @@ mod tests {
         save_folder(&mut data, ws, folder("b", "B", "a")).unwrap();
         save_folder(&mut data, ws, folder("x", "X", "")).unwrap();
         save_folder(&mut data, ws, folder("y", "Y", "x")).unwrap();
-        assert!(move_folder(&mut data, ws, "a", "b").is_err(), "into its own child");
+        assert!(
+            move_folder(&mut data, ws, "a", "b").is_err(),
+            "into its own child"
+        );
         assert!(move_folder(&mut data, ws, "a", "a").is_err(), "into itself");
         // x (two levels) under b (level 2) would make four levels.
         assert!(move_folder(&mut data, ws, "x", "b").is_err());
@@ -660,7 +671,11 @@ mod tests {
         let folders = &data.workspaces[0].folders;
         assert_eq!(folders.len(), 8);
         assert_eq!(folders.iter().find(|f| f.id == "o").unwrap().parent, "");
-        assert!(folders.iter().all(|f| depth_of(folders, &f.id) <= MAX_DEPTH));
+        assert!(
+            folders
+                .iter()
+                .all(|f| depth_of(folders, &f.id) <= MAX_DEPTH)
+        );
         assert_eq!(folders.iter().find(|f| f.id == "4").unwrap().parent, "2");
         assert_eq!(data.hosts[0].folder_id, "o");
         assert_eq!(data.hosts[1].folder_id, "");
@@ -672,12 +687,7 @@ mod tests {
         normalize(&mut data);
         let ws = DEFAULT_ID;
         save_folder(&mut data, ws, folder("prod", "Production", "")).unwrap();
-        let mut hosts = vec![
-            host("a", ws),
-            host("b", ws),
-            host("c", ws),
-            host("d", ws),
-        ];
+        let mut hosts = vec![host("a", ws), host("b", ws), host("c", ws), host("d", ws)];
         hosts[0].group = "production".into();
         hosts[1].group = "Staging".into();
         hosts[2].group = "Staging".into();
