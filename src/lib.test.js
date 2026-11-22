@@ -360,6 +360,10 @@ describe("shortcuts and settings (F7)", () => {
     expect(shortcut(key("K", { shiftKey: true }), true)).toEqual({
       action: "findServer",
     });
+    // Launchpad is Ctrl+Shift+D everywhere; plain Ctrl+D (EOF) stays with the shell.
+    expect(shortcut(key("D", { shiftKey: true }), true)).toEqual({
+      action: "launchpad",
+    });
     expect(shortcut({ type: "keydown", key: "Tab" })).toBe(null);
     expect(shortcut(key("Tab", { altKey: true }))).toBe(null);
     expect(shortcut({ ...key("Tab"), type: "keyup" })).toBe(null);

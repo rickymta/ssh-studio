@@ -32,7 +32,9 @@ npm start
 
 **Server & kết nối**
 - Thêm, sửa, xóa server; tìm theo tên/IP/username (Ctrl+K); phân nhóm theo môi trường hoặc dự án.
-- Workspace: gom server theo khách hàng / dự án (tên, màu); đổi workspace ở góc trên sidebar, server và nhóm hiển thị theo workspace đang chọn. Xóa workspace sẽ chuyển server sang workspace khác; sao lưu / khôi phục giữ nguyên workspace (gộp theo tên).
+- Workspace: gom server theo khách hàng / dự án (tên, màu); đổi workspace ở góc trên sidebar, server và nhóm hiển thị theo workspace đang chọn. Xóa workspace sẽ chuyển server sang workspace khác; sao lưu / khôi phục giữ nguyên workspace và thư mục (gộp theo tên).
+- Thư mục trong workspace (tối đa 3 cấp) ở sidebar: kéo thả server / thư mục, chuột phải để đổi tên, chuyển, xóa (nội dung chuyển lên cấp trên), tạo thư mục từ các nhóm server có sẵn. Trang Servers liệt kê theo thư mục (hoặc dạng thẻ), lọc Đang kết nối / Chưa mở / Có port forward / Cần chú ý, xem lần kết nối gần nhất, "Kết nối tất cả" cho cả danh sách hay một thư mục.
+- **Launchpad** (Ctrl+Shift+D): phiên đang mở, server gần đây (ghim lên đầu), port forward đang chạy, truyền file và mục cần chú ý (phiên bị ngắt, forward lỗi, truyền file thất bại, lần kết nối trước lỗi) của mọi workspace hoặc chỉ workspace hiện tại; tìm kiếm, phím J/K/Enter/C/P. Lịch sử kết nối chỉ lưu thời điểm và kết quả, trên máy này.
 - Xác thực bằng password, private key, SSH agent (Windows OpenSSH agent / Pageant, `SSH_AUTH_SOCK` trên Unix) hoặc keyboard-interactive / MFA (OTP), kể cả chuỗi nhiều bước (key rồi OTP). Password được hỏi khi kết nối, hoặc lưu mã hóa trong vault nếu bạn chọn “Lưu mật khẩu”; mã OTP không bao giờ được lưu.
 - Jump host (ProxyJump, cho phép chuỗi nhiều bước, chặn vòng lặp) và proxy SOCKS5 / HTTP CONNECT. Mật khẩu proxy nằm trong vault mã hóa.
 - Port forwarding Local (-L), Remote (-R) và Dynamic SOCKS5 (-D) trong tab **Ports** của phiên; forward đã lưu tự bật khi kết nối.

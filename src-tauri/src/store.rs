@@ -19,6 +19,9 @@ pub struct Host {
     /// Workspace the server belongs to (older files: moved into the default workspace).
     #[serde(default)]
     pub workspace_id: String,
+    /// Folder of its workspace the server sits in (empty: the workspace root).
+    #[serde(default)]
+    pub folder_id: String,
     /// `password` | `key` | `agent` | `interactive` (keyboard-interactive / MFA).
     pub auth: String,
     pub key_id: String,

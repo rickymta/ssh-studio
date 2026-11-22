@@ -8,6 +8,7 @@ import {
   Usb,
 } from "lucide-react";
 import { uid } from "../lib.js";
+import { flatFolders } from "../folders.js";
 import { Button, Modal, Field } from "./ui.jsx";
 
 const methods = [
@@ -34,6 +35,7 @@ export function HostModal({
   keys,
   workspaces = [],
   workspaceId = "",
+  folderId,
   close,
   save,
 }) {
@@ -53,6 +55,7 @@ export function HostModal({
       workspaceId: workspaces.some((w) => w.id === base.workspaceId)
         ? base.workspaceId
         : workspaceId,
+      folderId: host ? base.folderId || "" : folderId || "",
       password: "",
       forgetPassword: false,
       jumpHostId: base.jumpHostId || "",
@@ -74,6 +77,9 @@ export function HostModal({
         : "direct",
   );
   const [busy, setBusy] = useState(false);
+  const folderChoices = flatFolders(
+    workspaces.find((w) => w.id === form.workspaceId)?.folders || [],
+  );
   const field = (key) => ({
     value: form[key],
     onChange: (e) => setForm({ ...form, [key]: e.target.value }),
@@ -153,16 +159,40 @@ export function HostModal({
               {...field("group")}
             />
           </div>
-          {workspaces.length > 1 && (
-            <Field label="Workspace">
-              <select {...field("workspaceId")}>
-                {workspaces.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
+          {(workspaces.length > 1 || folderChoices.length > 0) && (
+            <div className="form-row">
+              {workspaces.length > 1 && (
+                <Field label="Workspace">
+                  <select
+                    value={form.workspaceId}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        workspaceId: e.target.value,
+                        folderId: "",
+                      })
+                    }
+                  >
+                    {workspaces.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              <Field label="Thư mục">
+                <select {...field("folderId")} disabled={!folderChoices.length}>
+                  <option value="">Gốc workspace</option>
+                  {folderChoices.map(({ folder, depth }) => (
+                    <option key={folder.id} value={folder.id}>
+                      {"2003".repeat(depth - 1)}
+                      {folder.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
           )}
           <Field label="Phương thức xác thực">
             <div className="segmented">

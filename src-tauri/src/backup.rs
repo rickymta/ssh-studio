@@ -349,7 +349,19 @@ fn merge(store: &mut Store, contents: Contents, replace: &[String]) -> anyhow::R
             w.id == workspace.id || w.name.to_lowercase() == workspace.name.trim().to_lowercase()
         });
         let id = match existing {
-            Some(w) => w.id.clone(),
+            Some(w) => {
+                // Folders the local workspace does not have yet are added (by id), so the
+                // restored servers keep their place; `normalize` repairs the tree below.
+                let id = w.id.clone();
+                if let Some(local) = store.data.workspaces.iter_mut().find(|w| w.id == id) {
+                    for folder in &workspace.folders {
+                        if !local.folders.iter().any(|f| f.id == folder.id) {
+                            local.folders.push(folder.clone());
+                        }
+                    }
+                }
+                id
+            }
             None => {
                 let mut copy = workspace.clone();
                 copy.id = String::new();
@@ -492,6 +504,7 @@ mod tests {
                 id: String::new(),
                 name: name.into(),
                 color: "red".into(),
+                folders: vec![],
             };
             workspace::save(&mut store.data, ws).unwrap();
         }
@@ -510,6 +523,7 @@ mod tests {
             id: String::new(),
             name: "prod".into(),
             color: "blue".into(),
+            folders: vec![],
         };
         workspace::save(&mut other.data, ws).unwrap();
         let local_prod = other.data.active_workspace.clone();
