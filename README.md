@@ -37,6 +37,7 @@ npm start
 - **Launchpad** (Ctrl+Shift+D): phiên đang mở, server gần đây (ghim lên đầu), port forward đang chạy, truyền file và mục cần chú ý (phiên bị ngắt, forward lỗi, truyền file thất bại, lần kết nối trước lỗi) của mọi workspace hoặc chỉ workspace hiện tại; tìm kiếm, phím J/K/Enter/C/P. Lịch sử kết nối chỉ lưu thời điểm và kết quả, trên máy này.
 - Xác thực bằng password, private key, SSH agent (Windows OpenSSH agent / Pageant, `SSH_AUTH_SOCK` trên Unix) hoặc keyboard-interactive / MFA (OTP), kể cả chuỗi nhiều bước (key rồi OTP). Password được hỏi khi kết nối, hoặc lưu mã hóa trong vault nếu bạn chọn “Lưu mật khẩu”; mã OTP không bao giờ được lưu.
 - Jump host (ProxyJump, cho phép chuỗi nhiều bước, chặn vòng lặp) và proxy SOCKS5 / HTTP CONNECT. Mật khẩu proxy nằm trong vault mã hóa.
+- Tùy chọn **Tương thích server cũ** cho từng server: thêm trao đổi khóa SHA-1 / ECDH NIST, mã hóa CBC / 3DES, MAC hmac-sha1, host key DSA cho thiết bị mạng, NAS, server đời cũ (mặc định chỉ dùng thuật toán an toàn). Lỗi kết nối nói rõ thiếu thuật toán nào; lỗi xác thực nói server chấp nhận phương thức nào và cách sửa.
 - Port forwarding Local (-L), Remote (-R) và Dynamic SOCKS5 (-D) trong tab **Ports** của phiên; forward đã lưu tự bật khi kết nối.
 
 **Terminal**
@@ -64,6 +65,7 @@ npm start
 - **Trợ giúp** (F1 hoặc nút ở thanh trạng thái): bảng phím tắt có ô lọc, hướng dẫn nhanh, giới thiệu (phiên bản, hệ điều hành, thư mục dữ liệu).
 - **Nhật ký hoạt động** (Ctrl+Shift+L): kết nối, truyền file và thông báo của ứng dụng, lọc theo lỗi và tìm kiếm; lưu 30 ngày / 1000 dòng trên máy, không chứa mật khẩu hay mã OTP.
 - Biểu tượng khay hệ thống: hiện cửa sổ, số phiên đang kết nối, thoát; tùy chọn chạy nền khi đóng cửa sổ.
+- Chỉ chạy một bản: mở SSH Studio lần nữa (kể cả khi đang chạy nền ở khay) sẽ đưa cửa sổ đang có lên trước, tránh hai bản ghi đè cấu hình của nhau.
 - `workspace.json` hỏng không làm app dừng: file được giữ lại để khôi phục, app mở với workspace trống.
 
 ## Sử dụng

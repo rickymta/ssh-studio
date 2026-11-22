@@ -137,8 +137,56 @@ impl Session {
 /// keeps those connections and closes them with itself.
 type Handle = client::Handle<Handler>;
 
+/// The default (modern algorithms only) configuration.
+#[cfg(test)]
 pub(crate) fn client_config() -> Arc<client::Config> {
+    client_config_for(false)
+}
+
+/// Algorithms offered on top of russh's defaults when "Tương thích server cũ" is on, in the
+/// order OpenSSH prefers them. Old network gear, NAS and CentOS 5/6-era servers often speak
+/// only these.
+const LEGACY_KEX: [russh::kex::Name; 6] = [
+    russh::kex::ECDH_SHA2_NISTP256,
+    russh::kex::ECDH_SHA2_NISTP384,
+    russh::kex::ECDH_SHA2_NISTP521,
+    russh::kex::DH_GEX_SHA1,
+    russh::kex::DH_G14_SHA1,
+    russh::kex::DH_G1_SHA1,
+];
+const LEGACY_CIPHERS: [russh::cipher::Name; 4] = [
+    russh::cipher::AES_128_CBC,
+    russh::cipher::AES_192_CBC,
+    russh::cipher::AES_256_CBC,
+    russh::cipher::TRIPLE_DES_CBC,
+];
+const LEGACY_MACS: [russh::mac::Name; 2] = [russh::mac::HMAC_SHA1_ETM, russh::mac::HMAC_SHA1];
+
+/// russh's defaults, plus the legacy algorithms after them (modern ones still win whenever the
+/// server has them). Kex extension markers (ext-info, strict kex) stay at the end of the list.
+pub(crate) fn legacy_preferred() -> russh::Preferred {
+    let base = russh::Preferred::DEFAULT;
+    let (markers, kex): (Vec<_>, Vec<_>) = base.kex.iter().copied().partition(|name| {
+        name.as_ref().starts_with("ext-info") || name.as_ref().starts_with("kex-strict")
+    });
+    let mut key = base.key.to_vec();
+    key.push(russh::keys::Algorithm::Dsa);
+    russh::Preferred {
+        kex: kex.into_iter().chain(LEGACY_KEX).chain(markers).collect(),
+        key: key.into(),
+        cipher: base.cipher.iter().copied().chain(LEGACY_CIPHERS).collect(),
+        mac: base.mac.iter().copied().chain(LEGACY_MACS).collect(),
+        ..base
+    }
+}
+
+pub(crate) fn client_config_for(legacy: bool) -> Arc<client::Config> {
     Arc::new(client::Config {
+        preferred: if legacy {
+            legacy_preferred()
+        } else {
+            russh::Preferred::DEFAULT
+        },
         // Interactive traffic is many tiny packets: without TCP_NODELAY, Nagle holds each
         // keystroke until the previous one is acknowledged, so typing echoes late (OpenSSH
         // sets it for interactive sessions too).
@@ -559,12 +607,109 @@ async fn authenticate(ctx: &Ctx<'_>, handle: &mut Handle, host: &Host) -> anyhow
         };
         match next {
             Some(name) => method = name.to_string(),
-            None => anyhow::bail!(
-                "Xác thực thất bại. Kiểm tra username, password, SSH key hoặc mã xác thực."
-            ),
+            None => {
+                let names: Vec<&str> = remaining.iter().map(<&str>::from).collect();
+                anyhow::bail!("{}", auth_failure(&host.username, &tried, &names))
+            }
         }
     }
     anyhow::bail!("Xác thực thất bại: quá nhiều bước.")
+}
+
+/// "No common algorithm" in plain words: which kind is missing, what the server offers, and
+/// whether "Tương thích server cũ" would help.
+pub(crate) fn no_common_algorithm(
+    kind: &russh::AlgorithmKind,
+    theirs: &[String],
+    legacy: bool,
+) -> String {
+    use russh::AlgorithmKind as K;
+    let what = match kind {
+        K::Kex => "trao đổi khóa (key exchange)",
+        K::Key => "host key",
+        K::Cipher => "mã hóa (cipher)",
+        K::Mac => "MAC",
+        K::Compression => "nén",
+    };
+    let offered = theirs
+        .iter()
+        .filter(|n| !n.starts_with("ext-info") && !n.starts_with("kex-strict"))
+        .take(8)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if legacy {
+        format!(
+            "Không có thuật toán {what} chung với server, kể cả ở chế độ tương thích server cũ. Server chỉ hỗ trợ: {offered}."
+        )
+    } else {
+        format!(
+            "Server chỉ hỗ trợ thuật toán {what} cũ ({offered}). Bật “Tương thích server cũ” trong cấu hình server rồi kết nối lại."
+        )
+    }
+}
+
+fn explain_connect_error(e: anyhow::Error, host: &Host) -> anyhow::Error {
+    match e.downcast_ref::<russh::Error>() {
+        Some(russh::Error::NoCommonAlgo { kind, theirs, .. }) => anyhow::anyhow!(
+            "{}",
+            no_common_algorithm(kind, theirs, host.legacy_algorithms)
+        ),
+        _ => e,
+    }
+}
+
+/// Why authentication ended without success: what was tried, what the server still accepts,
+/// and the likely fix. `remaining` are the server's method names (publickey, password…).
+pub(crate) fn auth_failure(username: &str, tried: &[String], remaining: &[&str]) -> String {
+    let label = |m: &str| match m {
+        "key" => "SSH key",
+        "agent" => "SSH agent",
+        "interactive" => "keyboard-interactive",
+        _ => "mật khẩu",
+    };
+    let mut labels: Vec<&str> = vec![];
+    for t in tried {
+        if !labels.contains(&label(t)) {
+            labels.push(label(t));
+        }
+    }
+    let used_key = tried.iter().any(|t| t == "key" || t == "agent");
+    let used_secret = tried.iter().any(|t| t == "password" || t == "interactive");
+    let accepts = |m: &str| remaining.contains(&m);
+    let hint = if remaining.is_empty() {
+        "Server không cho thử thêm phương thức nào (có thể tài khoản bị khóa hoặc đã thử sai quá nhiều lần).".to_string()
+    } else if accepts("publickey")
+        && !used_key
+        && !accepts("password")
+        && !accepts("keyboard-interactive")
+    {
+        "Server chỉ nhận SSH key. Chọn “SSH Key” (nhập key vào trang SSH Keys) hoặc “Agent” nếu key nằm trong ssh-agent / Pageant. Lệnh ssh trong terminal tự thử các key trong ~/.ssh nên vẫn vào được.".to_string()
+    } else if used_key
+        && (accepts("password") || accepts("keyboard-interactive"))
+        && !accepts("publickey")
+    {
+        "Server không nhận key này. Chọn “Mật khẩu” (hoặc “MFA / OTP”), hoặc thêm public key vào ~/.ssh/authorized_keys của user.".to_string()
+    } else if used_key {
+        format!(
+            "Server từ chối key: kiểm tra public key đã có trong ~/.ssh/authorized_keys của “{username}” chưa."
+        )
+    } else if used_secret && accepts("publickey") {
+        format!(
+            "Kiểm tra lại username “{username}” và mật khẩu. Server cũng nhận SSH key: nếu lệnh ssh vào được mà không hỏi mật khẩu thì nó đang dùng key, hãy chọn “SSH Key” hoặc “Agent”."
+        )
+    } else {
+        format!("Kiểm tra lại username “{username}” và mật khẩu.")
+    };
+    let server = if remaining.is_empty() {
+        String::new()
+    } else {
+        format!(" Server chấp nhận: {}.", remaining.join(", "))
+    };
+    format!(
+        "Xác thực thất bại (đã thử: {}).{server} {hint}",
+        labels.join(", ")
+    )
 }
 
 type Connected = (Handle, Vec<Arc<Handle>>, crate::forward::Routes);
@@ -590,6 +735,7 @@ fn open<'a>(ctx: &'a Ctx<'a>, host: Host, mut visited: Vec<String>) -> Opening<'
             routes: routes.clone(),
         };
         let timeout = Duration::from_secs(140);
+        let config = client_config_for(host.legacy_algorithms);
         let (mut handle, jumps) = if !host.jump_host_id.is_empty() {
             let jump = ctx
                 .state
@@ -618,9 +764,10 @@ fn open<'a>(ctx: &'a Ctx<'a>, host: Host, mut visited: Vec<String>) -> Opening<'
                 })?;
             let handle = tokio::time::timeout(
                 timeout,
-                client::connect_stream(client_config(), channel.into_stream(), handler),
+                client::connect_stream(config.clone(), channel.into_stream(), handler),
             )
-            .await??;
+            .await?
+            .map_err(|e| explain_connect_error(e, &host))?;
             chain.insert(0, Arc::new(jump_handle));
             (handle, chain)
         } else if host.proxy.enabled() {
@@ -629,16 +776,18 @@ fn open<'a>(ctx: &'a Ctx<'a>, host: Host, mut visited: Vec<String>) -> Opening<'
                     .await?;
             let handle = tokio::time::timeout(
                 timeout,
-                client::connect_stream(client_config(), stream, handler),
+                client::connect_stream(config.clone(), stream, handler),
             )
-            .await??;
+            .await?
+            .map_err(|e| explain_connect_error(e, &host))?;
             (handle, vec![])
         } else {
             let handle = tokio::time::timeout(
                 timeout,
-                client::connect(client_config(), (host.host.as_str(), host.port), handler),
+                client::connect(config.clone(), (host.host.as_str(), host.port), handler),
             )
-            .await??;
+            .await?
+            .map_err(|e| explain_connect_error(e, &host))?;
             (handle, vec![])
         };
         authenticate(ctx, &mut handle, &host)
@@ -736,4 +885,83 @@ async fn await_channel_success(channel: &mut russh::Channel<client::Msg>) -> any
         }
     })
     .await?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_algorithms_come_after_the_modern_ones() {
+        let modern = russh::Preferred::DEFAULT;
+        let legacy = legacy_preferred();
+        let kex: Vec<&str> = legacy.kex.iter().map(|n| n.as_ref()).collect();
+        // Modern first (still chosen when the server has them), extension markers last.
+        assert_eq!(kex[0], modern.kex[0].as_ref());
+        let g14 = kex
+            .iter()
+            .position(|n| *n == "diffie-hellman-group14-sha1")
+            .unwrap();
+        let curve = kex.iter().position(|n| *n == "curve25519-sha256").unwrap();
+        assert!(curve < g14);
+        assert!(kex.last().unwrap().starts_with("kex-strict"));
+        assert!(
+            kex.iter()
+                .rev()
+                .take(4)
+                .all(|n| n.starts_with("ext-info") || n.starts_with("kex-strict"))
+        );
+        assert!(legacy.cipher.contains(&russh::cipher::AES_128_CBC));
+        assert!(legacy.cipher.contains(&russh::cipher::TRIPLE_DES_CBC));
+        assert!(legacy.mac.contains(&russh::mac::HMAC_SHA1));
+        assert!(legacy.key.contains(&russh::keys::Algorithm::Dsa));
+        // The default stays strict.
+        assert!(!modern.kex.contains(&russh::kex::DH_G14_SHA1));
+        assert!(
+            !client_config()
+                .preferred
+                .mac
+                .contains(&russh::mac::HMAC_SHA1)
+        );
+        assert!(
+            client_config_for(true)
+                .preferred
+                .mac
+                .contains(&russh::mac::HMAC_SHA1)
+        );
+    }
+
+    #[test]
+    fn missing_algorithms_are_explained() {
+        let theirs = vec![
+            "diffie-hellman-group14-sha1".to_string(),
+            "ext-info-s".to_string(),
+        ];
+        let off = no_common_algorithm(&russh::AlgorithmKind::Kex, &theirs, false);
+        assert!(off.contains("Tương thích server cũ"), "{off}");
+        assert!(off.contains("diffie-hellman-group14-sha1"));
+        assert!(!off.contains("ext-info"));
+        let on = no_common_algorithm(&russh::AlgorithmKind::Mac, &theirs, true);
+        assert!(on.contains("kể cả ở chế độ tương thích"), "{on}");
+    }
+
+    #[test]
+    fn auth_failure_points_at_the_likely_fix() {
+        let tried = |m: &[&str]| m.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let only_key = auth_failure("root", &tried(&["password"]), &["publickey"]);
+        assert!(only_key.contains("Server chỉ nhận SSH key"), "{only_key}");
+        let wrong = auth_failure("root", &tried(&["password", "interactive"]), &["password"]);
+        assert!(
+            wrong.contains("đã thử: mật khẩu, keyboard-interactive"),
+            "{wrong}"
+        );
+        assert!(wrong.contains("username “root”"), "{wrong}");
+        let key_refused = auth_failure("deploy", &tried(&["key"]), &["password"]);
+        assert!(
+            key_refused.contains("Server không nhận key này"),
+            "{key_refused}"
+        );
+        let locked = auth_failure("root", &tried(&["password"]), &[]);
+        assert!(locked.contains("không cho thử thêm"), "{locked}");
+    }
 }

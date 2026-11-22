@@ -348,6 +348,8 @@ impl Drop for Fixture {
 }
 
 /// Starts an SSH server on 127.0.0.1 and returns its port and task.
+// Test fixture: one argument per piece of server state the tests inspect.
+#[allow(clippy::too_many_arguments)]
 pub async fn serve(
     root: PathBuf,
     links: Links,
@@ -356,6 +358,7 @@ pub async fn serve(
     allowed_key: russh::keys::PublicKey,
     sftp_opened: Arc<std::sync::atomic::AtomicUsize>,
     write_limit: WriteLimit,
+    preferred: russh::Preferred,
 ) -> (u16, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
@@ -373,6 +376,7 @@ pub async fn serve(
         keys: vec![host_key],
         auth_rejection_time: Duration::from_millis(1),
         auth_rejection_time_initial: Some(Duration::from_millis(1)),
+        preferred,
         ..Default::default()
     });
     let task = tokio::spawn(async move {
@@ -383,6 +387,11 @@ pub async fn serve(
 
 impl Fixture {
     pub async fn start() -> Self {
+        Self::start_with(russh::Preferred::DEFAULT).await
+    }
+
+    /// A server that negotiates only `preferred` (e.g. an old server for the legacy option).
+    pub async fn start_with(preferred: russh::Preferred) -> Self {
         let vault = VaultGuard::new();
         let local = tempfile::tempdir().unwrap();
         let remote = tempfile::tempdir().unwrap();
@@ -404,6 +413,7 @@ impl Fixture {
             user_key.public_key().clone(),
             sftp_opened.clone(),
             write_limit.clone(),
+            preferred,
         )
         .await;
         let address = format!("[127.0.0.1]:{port}");
@@ -475,6 +485,7 @@ impl Fixture {
             forget_password: false,
             workspace_id: String::new(),
             folder_id: String::new(),
+            legacy_algorithms: false,
         }
     }
 
